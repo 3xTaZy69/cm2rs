@@ -1,0 +1,6 @@
+[workspace]
+members = [
+    "cm2rscli",
+    "cm2rs", "cm2rscli",
+]
+resolver = "3"

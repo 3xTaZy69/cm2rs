@@ -1,0 +1,8 @@
+[package]
+name = "cm2rscli"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+cm2rs = { path = "../cm2rs" }
+eframe = "0.31"
