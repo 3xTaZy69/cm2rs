@@ -1,0 +1,48 @@
+# since it doesnt have a byte code its a bit broken
+
+# if merging: create lower variable - fulcrum
+# "" - savefiles, '' - strings
+let lower = "3,0,0,0,0,???";
+
+# for loops, logic is a bit off so use ++i instead of i++
+# i is local for this loop
+# third argument cannot be i = i + 1, but can be i + 1
+for i = 0; i <= 10; ++i do
+    # nested loops
+    for j = 0; j <= 2; ++j do
+        log '-';
+    end
+    log 'Hello world: ', i, '\n';
+end
+
+log '\n';
+
+# displacement on merged savefile, + or - are required
+# displacement only applies after merging
+# you have to calculate cords with displacement on blueprint viewer
+let +[2,0,0]second = "15,0,0,0,0,???";
+
+if second[0,0,0] == NODE then
+    log '[0,0,0] on second is node!!!\n';
+else
+    log '[0,0,0] on second is not node!!!\n';
+endif
+
+# connecting lower[0,0,0] to second[0,0,0]
+second[0,0,0] = lower[0,0,0];
+
+# floating point, also aviable for displacement and if, for statements
+let v = 2.4;
+v = v + 1.5;
+log 'v: ', v, '\n';
+
+for n = 0; n <= 1; n + 0.1 do
+    log 'n: ', n, '\n';
+end
+
+# by knowing memories coordinates you can map their coords to files(for emulation(not implemented rn))
+# example
+# meme second[1000,1000,1000] = './second.bin';
+
+# no semicolon
+merge lower second
