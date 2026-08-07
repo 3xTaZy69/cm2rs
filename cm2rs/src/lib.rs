@@ -4,6 +4,7 @@ pub mod sim;
 pub mod sms;
 pub mod rtl;
 use std::{clone, mem::discriminant, sync::{LazyLock, Mutex, atomic::AtomicU32}};
+use std::collections::HashMap;
 
 use crate::sms::SmsBlock;
 static NEXT_ID: AtomicU32 = AtomicU32::new(1);
@@ -158,6 +159,7 @@ pub fn next_id() -> u32 {
     NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
 }
 
+/// i prefix - independent from global SAVE, s - state
 #[derive(Clone, Debug, Copy)]
 pub struct Block {
     pub id: u32,
@@ -247,6 +249,9 @@ impl Block {
         SAVE.lock().unwrap().connections.push(connection);
         connection  
     }
+    pub fn iconnect(&self, other: &Block) -> Connection {
+        Connection { src: self.id, dst: other.id }
+    }
     pub fn as_string(&self) -> String {
         let idx = match &self.blocktype {
             BlockType::Nor => 0,
@@ -309,6 +314,17 @@ impl Block {
     pub fn sinew(id: u32, pos: [f32; 3], blocktype: BlockType, state: bool) -> Block {
         Block { id, blocktype, state, pos }
     }
+    pub fn inew_noid(pos: [f32 ;3], blocktype: BlockType) -> Block {
+        Block { id: next_id(), blocktype, state: false, pos }
+    }
+    pub fn snew(pos: [f32; 3], blocktype: BlockType, state: bool) -> Block {
+        let block = Block { id: next_id(), blocktype, state, pos };
+        SAVE.lock().unwrap().blocks.push(block.clone());
+        block
+    }
+    pub fn add_to_global_save(self) {
+        SAVE.lock().unwrap().blocks.push(self);
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -333,6 +349,46 @@ impl Connection {
         Connection { src, dst }
     }
 }
+
+
+use std::ops::{Shl, Shr};
+
+impl Shl for Block {
+    type Output = Connection;
+
+    fn shl(self, rhs: Self) -> Self::Output {
+        self.connect(&rhs)
+    } 
+
+}
+
+impl Shr for Block {
+    type Output = Connection;
+
+    fn shr(self, rhs: Self) -> Self::Output {
+        rhs.connect(&self)
+    } 
+
+}
+
+impl Shl for &Block {
+    type Output = Connection;
+
+    fn shl(self, rhs: Self) -> Self::Output {
+        self.connect(&rhs)
+    } 
+
+}
+
+impl Shr for &Block {
+    type Output = Connection;
+
+    fn shr(self, rhs: Self) -> Self::Output {
+        rhs.connect(&self)
+    } 
+
+}
+
 
 #[derive(Clone, Debug)]
 pub enum BuildingType {
@@ -397,9 +453,9 @@ impl BuildingType {
 #[derive(Debug, Clone)]
 pub struct Building {
     pub buildtype: BuildingType,
-    pub x: i32,
-    pub y: i32,
-    pub z: i32,
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
     pub rotation: [[f32; 3]; 3],
     pub connections: Vec<Option<Vec<(u8, u32)>>>
 }
@@ -408,7 +464,7 @@ impl Building {
     pub fn from_string(string: String) -> Self {
         let structure: Vec<String> = string.split(',').map(|c| c.to_string()).collect();
         let buildingtype = BuildingType::from_string(structure[0].clone());
-        let pos: [i32; 3] = [
+        let pos: [f32; 3] = [
             structure[1].parse().unwrap(),
             structure[2].parse().unwrap(),
             structure[3].parse().unwrap()
@@ -452,7 +508,7 @@ impl Building {
         let connections = optcon(connectionsvec);
         Building { buildtype: buildingtype, x: pos[0], y: pos[1], z: pos[2], rotation: rot, connections }
     }
-    pub fn new(buildtype: BuildingType, pos: [i32; 3], rot: [[f32; 3]; 3], connections: Vec<Option<Vec<(u8, u32)>>>) -> Self {
+    pub fn new(buildtype: BuildingType, pos: [f32; 3], rot: [[f32; 3]; 3], connections: Vec<Option<Vec<(u8, u32)>>>) -> Self {
         Building { buildtype, x: pos[0], y: pos[1], z: pos[2], rotation: rot, connections }
     }
     pub fn as_string(&self) -> String {
@@ -501,6 +557,23 @@ impl Building {
         connections
         )
     }
+    pub fn cons_as_dbg_string(&self) -> String {
+        self.connections.iter()
+        .map(|opt| {
+            opt.as_ref()
+                .map(|inner_vec| {
+                    inner_vec
+                        .iter()
+                        .map(|(a, b)| format!("{a}{b}"))
+                        .collect::<Vec<_>>()
+                        .join("+")
+                })
+                .unwrap_or_default()
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+    }
+
 }
 
 #[derive(Debug, Clone)]
@@ -508,6 +581,7 @@ pub struct Save {
     pub blocks: Vec<Block>,
     pub connections: Vec<Connection>,
     pub buildings: Vec<Building>,
+    pub next_id: u32
 }
 
 impl Save {
@@ -537,7 +611,7 @@ impl Save {
         blockstr
     }
     pub const fn new() -> Save {
-        Save { blocks: Vec::new(), connections: Vec::new(), buildings: Vec::new() }
+        Save { blocks: Vec::new(), connections: Vec::new(), buildings: Vec::new(), next_id: 1}
     }
     pub fn from_string(string: String, off: [f32; 3]) -> Save {
         let mut id = 0;
@@ -552,6 +626,349 @@ impl Save {
         save
     }
     pub fn from_bcb(blocks: Vec<Block>, connections: Vec<Connection>, buildings: Vec<Building> ) -> Self {
-        Save { blocks, connections, buildings }
+        let id = blocks.len();
+        Save { blocks, connections, buildings, next_id: id as u32 + 1 }
+    }
+    // O(n) + clone for each n
+    pub fn get_blocks_hash(&self) ->  HashMap<u32, Block> {
+        let mut hash: HashMap<u32, Block> = HashMap::new();
+        for block in &self.blocks {
+            hash.insert(block.id, block.clone());
+        }
+        hash
+    }
+    pub fn reset(&mut self) {
+        self.blocks.clear();
+        self.connections.clear();
+        self.buildings.clear();
     }
 }
+
+#[derive(PartialEq, Debug, Clone)]
+pub enum BPortD {
+    Input = 1,
+    Output = 0
+}
+
+impl BPortD {
+    pub fn from_u8(i: u8) -> Self {
+        match i {
+            0 => Self::Output,
+            1 => Self::Input,
+            // no error handling
+            _ => Self::Output
+        }
+    }
+    pub fn as_u8(&self) -> u8 {
+        (self == &BPortD::Input) as u8
+    }
+    pub fn from_connections(c: &Option<Vec<(u8, u32)>>) -> Option<Vec<(BPortD, u32)>>{
+        match c {
+            None => None,
+            Some(v) => Some(v.iter().map(|con| (BPortD::from_u8(con.0), con.1)).collect())
+        }
+    }
+}
+
+// Connectible trait for (u8, u32) and Block
+pub trait Connectible {
+    fn as_u8u32(&self) -> (u8, u32);
+}
+
+impl Connectible for (u8, u32) {
+    fn as_u8u32(&self) -> (u8, u32) {
+        (self.0, self.1)
+    }
+}
+
+impl Connectible for (u8, Block) {
+    fn as_u8u32(&self) -> (u8, u32) {
+        (self.0, self.1.id)
+    }
+}
+
+impl Connectible for (BPortD, Block) {
+    fn as_u8u32(&self) -> (u8, u32) {
+        ((self.0 == BPortD::Input) as u8, self.1.id)
+    }
+}
+
+#[allow(non_snake_case)]
+pub mod AdvancedBuildings {
+    use super::*;
+
+    pub struct TextConsolePorts {
+        loc: [Option<Vec<(BPortD, u32)>>; 8], 
+        chr: [Option<Vec<(BPortD, u32)>>; 8], 
+        clear: Option<Vec<(BPortD, u32)>>, 
+        cursor: Option<Vec<(BPortD, u32)>>, 
+        write: Option<Vec<(BPortD, u32)>>,
+    }
+
+    pub struct HugeMemoryPorts {
+        address: [Option<Vec<(BPortD, u32)>>; 16],
+        value: [Option<Vec<(BPortD, u32)>>; 16],
+        output: [Option<Vec<(BPortD, u32)>>; 16],
+        write: Option<Vec<(BPortD, u32)>>,
+    }
+
+    pub fn connectible_to_vec(c: Vec<&dyn Connectible>) -> Vec<(u8, u32)> {
+        c.iter().map(|v| v.as_u8u32()).collect()
+    }
+
+    pub fn extract_cons(
+        connections: &Vec<Option<Vec<(u8, u32)>>>,
+        range: std::ops::RangeInclusive<usize>
+    ) -> Vec<Option<Vec<(BPortD, u32)>>> {
+        connections[range]
+            .iter()
+            .cloned()
+            .map(|o| BPortD::from_connections(&o))
+            .collect()
+    }
+
+    pub fn extract_single(
+        connections: &Vec<Option<Vec<(u8, u32)>>>,
+        idx: usize
+    ) -> Option<Vec<(BPortD, u32)>> {
+        match &connections[idx] {
+            None => None,
+            Some(x) => Some(x
+                .iter()
+                .map(|v| (BPortD::from_u8(v.0), v.1)).collect())
+        }
+    }
+
+    /// Create text console!!!
+    pub fn TextConsole(
+        loc: [Option<Vec<&dyn Connectible>>; 8], 
+        chr: [Option<Vec<&dyn Connectible>>; 8], 
+        clear: Option<Vec<&dyn Connectible>>, 
+        cursor: Option<Vec<&dyn Connectible>>, 
+        write: Option<Vec<&dyn Connectible>>,
+        pos: [f32; 3],
+        rot: [[f32; 3]; 3]
+    ) -> (Building, TextConsolePorts) {
+        // chr + clear + cursor + loc + write
+        let connections: Vec<Option<Vec<(u8, u32)>>> = chr.
+            into_iter()
+            .chain([clear, cursor])
+            .chain(loc)
+            .chain([write])
+            .map(
+                |optionvec|
+                optionvec.map(
+                    |some|
+                    connectible_to_vec(some)
+                )
+            ).collect();
+
+
+            let chr_ports: [Option<Vec<(BPortD, u32)>>; 8] = extract_cons(&connections, 0..=7)
+                .try_into()
+                .unwrap(); 
+            let clear: Option<Vec<(BPortD, u32)>> = extract_single(&connections, 8);
+            let cursor: Option<Vec<(BPortD, u32)>> = extract_single(&connections, 9);
+            let loc_ports: [Option<Vec<(BPortD, u32)>>; 8] = extract_cons(&connections, 10..=17)
+                .try_into()
+                .unwrap();
+            let write: Option<Vec<(BPortD, u32)>> = extract_single(&connections, 18);
+
+            let tcp = TextConsolePorts { loc: loc_ports, chr: chr_ports, clear, cursor, write };
+
+        (Building::new(BuildingType::TextConsole, pos, rot, connections), tcp)
+    }
+
+    pub fn HugeMemory(
+        address: [Option<Vec<&dyn Connectible>>; 16], 
+        value: [Option<Vec<&dyn Connectible>>; 16], 
+        output: [Option<Vec<&dyn Connectible>>; 16], 
+        write: Option<Vec<&dyn Connectible>>,
+        pos: [f32; 3],
+        rot: [[f32; 3]; 3]
+    ) -> (Building, HugeMemoryPorts) { 
+        // addr[0] + addr[9..=15] + addr[1..=8] + out(same as addr) + value(same as addr) + write
+        let connections: Vec<Option<Vec<(u8, u32)>>>  = std::iter::once(&address[0])
+            .chain(&address[9..=15])
+            .chain(&address[1..=8])
+            .chain(&output[0..1])
+            .chain(&output[9..=15])
+            .chain(&output[1..=8])
+            .chain(&value[0..1])
+            .chain(&value[9..=15])
+            .chain(&value[1..=8])
+            .chain(std::iter::once(&write))
+            .map(
+                |opt|
+                opt.as_ref().map(
+                    |v|
+                    v.iter().map(
+                        |c|
+                        c.as_u8u32()
+                    ).collect()
+                )
+            ).collect();
+
+            let get_ports = |additive: usize| -> [Option<Vec<(BPortD, u32)>>; 16] {
+                vec![extract_single(&connections, 0+additive)]
+                    .iter()
+                    .chain(extract_cons(&connections, (9+additive)..=(15+additive)).iter())
+                    .chain(extract_cons(&connections, (1+additive)..=(8+additive)).iter())
+                    .cloned()
+                    .collect::<Vec<Option<Vec<(BPortD, u32)>>>>()
+                    .try_into()
+                    .unwrap()
+            };
+
+            let addr_ports: [Option<Vec<(BPortD, u32)>>; 16] = get_ports(0);
+            let output_ports: [Option<Vec<(BPortD, u32)>>; 16] = get_ports(16);
+            let value_ports = get_ports(32);
+            let write = extract_single(&connections, 48);
+
+            let hmp = HugeMemoryPorts {address: addr_ports, value: value_ports, output: output_ports, write};
+        
+        (Building::new(BuildingType::HugeMemory, pos, rot, connections), hmp)
+    }
+
+}
+
+pub mod lut {
+    use core::fmt;
+
+    use super::*;
+
+    pub struct LuToverview {
+        luts: u64,
+        nands: u64,
+        ands: u64,
+        ors: u64,
+        nots: u64,
+        xors: u64,
+        wires: u64,
+    }
+
+    impl fmt::Display for LuToverview {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            let overview = format!("===LuT overview===
+    LUTs: {}
+    NANDs: {}
+    ANDs: {}
+    ORs: {}
+    NOTs: {}
+    XORs: {}
+    WIREs: {}
+
+            ", self.luts, self.nands, self.ands, self.ors, self.nots, self.xors, self.wires);
+
+            write!(f, "{}", overview)
+        }
+    }
+
+    pub fn count_luts(save: &Save) -> LuToverview {
+        let mut hash: HashMap<u32, u16> = HashMap::new();
+        let mut luts: u64 = 0;
+        let mut nands: u64 = 0;
+        let mut ands: u64 = 0;
+        let mut ors: u64 = 0;
+        let mut nots: u64 = 0;
+        let mut xors: u64 = 0;
+        let mut wires: u64 = 0;
+
+        for con in &save.connections {
+            *hash.entry(con.dst).or_insert(0) += 1;
+        } 
+
+        for blk in &save.blocks {
+
+            let inputs = hash.get(&blk.id).copied().unwrap_or(0);
+
+            luts += match inputs {
+
+                1 => {
+                    match blk.blocktype {
+                        BlockType::Nor => {
+                            nots += 1;
+                            nands += 1;
+                            1
+                        }
+                        _ => {
+                            wires += 1;
+                            1
+                        }
+                    }
+                    
+                },
+
+                2 => {
+                    match blk.blocktype {
+                        BlockType::Nor => {
+                            nots += 1;
+                            ors += 1;
+                            nands += 4;
+                            1
+                        }
+                        BlockType::And => {
+                            ands += 1;
+                            nands += 2;
+                            1
+                        }
+                        BlockType::Nand => {
+                            nands += 1;
+                            1
+                        }
+                        BlockType::Or | BlockType::Node => {
+                            ors += 1;
+                            nands += 3;
+                            1
+                        }
+                        BlockType::Xor => {
+                            nands += 4;
+                            xors += 1;
+                            1
+                        }
+                        _ => 1
+                    }
+                },
+
+                i if i >= 3 => {
+                    match blk.blocktype {
+                        BlockType::Nor => {
+                            nots += 1 * (i as u64 - 1);
+                            ors += 1 * (i as u64 - 1);
+                            nands += 4 * (i as u64 - 1);
+                            (i as u64 - 1)
+                        }
+                        BlockType::And => {
+                            ands += 1 * (i as u64 - 1);
+                            nands += 2 * (i as u64 - 1);
+                            (i as u64 - 1)
+                        }
+                        BlockType::Nand => {
+                            nands += 1 * (i as u64 - 1);
+                            (i as u64 - 1)
+                        }
+                        BlockType::Or => {
+                            ors += 1 * (i as u64 - 1);
+                            nands += 3 * (i as u64 - 1);
+                            (i as u64 - 1)
+                        }
+                        BlockType::Xor => {
+                            nands += 4 * (i as u64 - 1);
+                            xors += 1 * (i as u64 - 1);
+                            (i as u64 - 1)
+                        }
+                        _ => ( i as u64 - 1 )
+                    }
+                }
+
+                _ => 0,
+
+            }
+
+        }
+
+        LuToverview { luts, nands, ands, ors, nots, xors, wires }
+    }
+
+}
+
