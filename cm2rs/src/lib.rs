@@ -2,7 +2,8 @@
 
 pub mod sim;
 pub mod sms;
-pub mod rtl;
+pub mod verilogy;
+pub mod bus;
 use std::{clone, mem::discriminant, sync::{LazyLock, Mutex, atomic::AtomicU32}};
 use std::collections::HashMap;
 
@@ -10,7 +11,7 @@ use crate::sms::SmsBlock;
 static NEXT_ID: AtomicU32 = AtomicU32::new(1);
 pub static SAVE: LazyLock<Mutex<Save>> = LazyLock::new(|| Mutex::new(Save::new()));
 
-#[derive(Clone, Debug, Copy)]
+#[derive(Clone, Debug, Copy, PartialEq)]
 pub enum AntennaContext {
     Local = 0,
     Global = 1,
@@ -26,7 +27,7 @@ impl AntennaContext {
     }
 }
 
-#[derive(Clone, Debug, Copy)]
+#[derive(Clone, Debug, Copy, PartialEq)]
 pub enum Material {
     Stud = 1,
     Plastic = 2,
@@ -64,7 +65,7 @@ impl Material {
     }
 }
 
-#[derive(Clone, Debug, Copy)]
+#[derive(Clone, Debug, Copy, PartialEq)]
 pub enum Collision {
     Normal = 0,
     Collider = 1,
@@ -80,7 +81,7 @@ impl Collision {
     }
 }
 
-#[derive(Clone, Debug, Copy)]
+#[derive(Clone, Debug, Copy, PartialEq)]
 pub enum SoundInstrument {
     Sine = 0,
     Square = 1,
@@ -104,7 +105,7 @@ impl SoundInstrument {
     }
 }
 
-#[derive(Clone, Debug, Copy)]
+#[derive(Clone, Debug, Copy, PartialEq)]
 pub enum BlockType {
     Nor, // 0
     And, // 1
@@ -152,6 +153,29 @@ impl BlockType {
         };
 
         SmsBlock::fromi32(id)
+    }
+    pub fn as_u8(&self) -> u8 {
+        match self {
+            BlockType::Nor => 0,
+            BlockType::And => 1,
+            BlockType::Or => 2,
+            BlockType::Xor => 3,
+            BlockType::Button => 4,
+            BlockType::FlipFlop => 5,
+            BlockType::Led { .. } => 6,
+            BlockType::Sound { .. } => 7,
+            BlockType::Conductor => 8,
+            BlockType::Nand => 10,
+            BlockType::Xnor => 11,
+            BlockType::Random { .. } => 12,
+            BlockType::Text { .. } => 13,
+            BlockType::Tile { .. } => 14,
+            BlockType::Node => 15,
+            BlockType::Delay { .. } => 16,
+            BlockType::Antenna { .. } => 17,
+            BlockType::ConductorV2 => 18,
+            BlockType::Ledmixer { .. } => 19,
+        }
     }
 }
 
@@ -274,7 +298,16 @@ impl Block {
             BlockType::ConductorV2 => 18,
             BlockType::Ledmixer { .. } => 19,
         };
-        let noargs: String = format!("{},{},{},{},{},", idx, (discriminant(&self.blocktype) == discriminant(&BlockType::Nor)) as u8, self.pos[0], self.pos[1], self.pos[2]);
+        let x_str = self.pos[0].to_string();
+        let y_str = self.pos[1].to_string();
+        let z_str = self.pos[2].to_string();
+        let noargs: String = format!("{},{},{},{},{},", 
+            idx, 
+            if self.state == true {"1"} else {""}, 
+            if self.pos[0] != 0.0 {&x_str} else {""}, 
+            if self.pos[1] != 0.0 {&y_str} else {""},
+            if self.pos[2] != 0.0 {&z_str} else {""}
+        );
         match self.blocktype.clone() {
             BlockType::Antenna { channel, context } => {
                 format!("{}{}+{}", noargs, channel, context as u8)
@@ -366,7 +399,7 @@ impl Shr for Block {
     type Output = Connection;
 
     fn shr(self, rhs: Self) -> Self::Output {
-        rhs.connect(&self)
+        self.connect(&rhs)
     } 
 
 }
@@ -375,7 +408,7 @@ impl Shl for &Block {
     type Output = Connection;
 
     fn shl(self, rhs: Self) -> Self::Output {
-        self.connect(&rhs)
+        rhs.connect(&self)
     } 
 
 }
@@ -384,7 +417,7 @@ impl Shr for &Block {
     type Output = Connection;
 
     fn shr(self, rhs: Self) -> Self::Output {
-        rhs.connect(&self)
+        self.connect(rhs)
     } 
 
 }
@@ -443,8 +476,8 @@ impl BuildingType {
             "RealTimeClock" => Self::RealTimeClock,
             "Sign" => Self::Sign,
             "TextConsole" => Self::TextConsole,
-            "Divider32Bit" => Self::Divider32Bit,
-            "Multiplier32Bit" => Self::Multiplier32Bit,
+            "32BitDivider" => Self::Divider32Bit,
+            "32BitMultiplier" => Self::Multiplier32Bit,
             _ => panic!("string: {string} is not a valid building type")
         }
     }
@@ -550,15 +583,21 @@ impl Building {
             }
         } ).collect();
         let connections = connetionsvec.join(",");
+
+        let name = match self.buildtype {
+            BuildingType::Divider32Bit => "32BitDivider",
+            BuildingType::Multiplier32Bit => "32BitMultiplier",
+            _ => &format!("{:?}", self.buildtype)
+        };
         
-        format!("{:?},{},{}", 
-        self.buildtype,
+        format!("{},{},{}", 
+        name,
         posrot,
         connections
         )
     }
     pub fn cons_as_dbg_string(&self) -> String {
-        self.connections.iter()
+        let v = self.connections.iter()
         .map(|opt| {
             opt.as_ref()
                 .map(|inner_vec| {
@@ -570,8 +609,21 @@ impl Building {
                 })
                 .unwrap_or_default()
         })
-        .collect::<Vec<_>>()
-        .join("\n")
+        .collect::<Vec<_>>();
+        
+        let mut output_string: String = String::new();
+
+        for con in v.iter().enumerate() {
+            if con.0 % 2 == 1 {
+                output_string.push_str(con.1);
+                output_string.push('\n');
+            } else {
+                output_string.push_str(con.1);
+                output_string.push_str(",   ");
+            }
+        }
+
+        output_string
     }
 
 }
@@ -585,7 +637,7 @@ pub struct Save {
 }
 
 impl Save {
-    pub fn as_string(&self) -> String{
+    pub fn as_string(&mut self) -> String{
         let mut buildingstr: String = String::new();
         for building in &self.buildings {
             buildingstr.push_str(&building.as_string());
@@ -593,6 +645,7 @@ impl Save {
         }
         if !buildingstr.is_empty() {buildingstr.pop();}
         let mut blockstr: String = String::new();
+        self.blocks.sort_by_key(|b| b.id);
         for block in &self.blocks {
             blockstr.push_str(&block.as_string());
             blockstr.push(';');
@@ -644,7 +697,7 @@ impl Save {
     }
 }
 
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq, Debug, Clone, Copy)]
 pub enum BPortD {
     Input = 1,
     Output = 0
@@ -697,46 +750,154 @@ impl Connectible for (BPortD, Block) {
 pub mod AdvancedBuildings {
     use super::*;
 
-    pub struct TextConsolePorts {
-        loc: [Option<Vec<(BPortD, u32)>>; 8], 
-        chr: [Option<Vec<(BPortD, u32)>>; 8], 
-        clear: Option<Vec<(BPortD, u32)>>, 
-        cursor: Option<Vec<(BPortD, u32)>>, 
-        write: Option<Vec<(BPortD, u32)>>,
-    }
-
-    pub struct HugeMemoryPorts {
-        address: [Option<Vec<(BPortD, u32)>>; 16],
-        value: [Option<Vec<(BPortD, u32)>>; 16],
-        output: [Option<Vec<(BPortD, u32)>>; 16],
-        write: Option<Vec<(BPortD, u32)>>,
-    }
+    pub const DEFAULT_UP_Z_ROT: [[f32; 3]; 3] = [[0.0,0.0,-1.0],[-1.0,0.0,0.0],[0.0,1.0,0.0]];
+    pub const DEFAULT_LAY_Z_ROT: [[f32; 3]; 3] = [[0.0,0.0,-1.0],[0.0,1.0,0.0],[1.0,0.0,0.0]];
 
     pub fn connectible_to_vec(c: Vec<&dyn Connectible>) -> Vec<(u8, u32)> {
         c.iter().map(|v| v.as_u8u32()).collect()
     }
 
-    pub fn extract_cons(
-        connections: &Vec<Option<Vec<(u8, u32)>>>,
-        range: std::ops::RangeInclusive<usize>
-    ) -> Vec<Option<Vec<(BPortD, u32)>>> {
-        connections[range]
-            .iter()
-            .cloned()
-            .map(|o| BPortD::from_connections(&o))
-            .collect()
+    pub fn block_vec_to_connectible(v: Vec<Block>, direction: BPortD) -> Vec<Option<Vec<(BPortD, Block)>>> {
+        let mut vec: Vec<Option<Vec<(BPortD, Block)>>> = Vec::new();
+
+        for block in v {
+            vec.push(Some(vec![(direction, block)]));
+        }
+
+        vec
     }
 
-    pub fn extract_single(
-        connections: &Vec<Option<Vec<(u8, u32)>>>,
-        idx: usize
-    ) -> Option<Vec<(BPortD, u32)>> {
-        match &connections[idx] {
-            None => None,
-            Some(x) => Some(x
-                .iter()
-                .map(|v| (BPortD::from_u8(v.0), v.1)).collect())
+    pub fn find_sequence(blocks: Vec<Block>, building: Building) {
+        // 4 buses
+        eprintln!("Finding connections");
+        let mut xyz_hash: HashMap<(i32, i32, i32), &Block> = HashMap::new();
+        let mut id_xyz: HashMap<u32, (i32, i32, i32)> = HashMap::new();
+        let mut coords_vec: Vec<(i32, i32, i32)> = Vec::new();
+
+        for block in &blocks {
+            xyz_hash.insert((block.pos[0] as i32, block.pos[1] as i32, block.pos[2] as i32), &block);
+            coords_vec.push((block.pos[0] as i32, block.pos[1] as i32, block.pos[2] as i32));
+            id_xyz.insert(block.id, (block.pos[0] as i32, block.pos[1] as i32, block.pos[2] as i32));
         }
+
+        println!("Finding least and most coordinates");
+
+        let mut least_z = coords_vec.clone();
+        least_z.sort_by_key(|v| v.2);
+        let mut most_z = least_z.clone();
+        most_z.reverse();
+
+        let mut least_x = coords_vec.clone();
+        least_x.sort_by_key(|v| v.0);
+        let mut most_x = least_x.clone();
+        most_x.reverse();
+
+        let least_z_block = &least_z[0];
+        let least_x_block = &least_x[0];
+        let most_z_block = &most_z[0];
+        let most_x_block = &most_x[0];
+
+        println!("Finding connections and positions");
+
+        for (idx, connection) in building.connections.iter().enumerate() {
+            if let Some(v) = connection {
+                println!("{idx}: id{}: {:?}", &v[0].1, id_xyz.get(&v[0].1).unwrap());
+            }
+        }
+
+        println!("least z: {least_z_block:?}, least x: {least_x_block:?}, most z: {most_z_block:?}, most x: {most_x_block:?}");
+
+        let mut bottom_left_bus: Vec<Block> = Vec::new();
+        let mut next_coors: (i32, i32, i32) = (least_x_block.0, 0, most_z_block.2);
+
+        while let Some(block) = xyz_hash.get(&next_coors) {
+            bottom_left_bus.push((*block).clone());
+            next_coors.0 += 1;
+        }
+
+        let mut bottom_right_bus: Vec<Block> = Vec::new();
+        let mut next_coors: (i32, i32, i32) = (most_x_block.0, 0, most_z_block.2);
+        let mut write: Option<Block> = None;
+
+        while let Some(block) = xyz_hash.get(&next_coors) {
+            bottom_right_bus.push((*block).clone());
+            next_coors.0 -= 1;
+        }
+
+        if bottom_right_bus.len() == 1 {
+            write = Some(bottom_right_bus[0]);
+            bottom_right_bus.clear();
+            next_coors.0 -= 1;
+            while let Some(block) = xyz_hash.get(&next_coors) {
+                bottom_right_bus.push((*block).clone());
+                next_coors.0 -= 1;
+            }
+        }
+        
+
+        let mut top_right_bus: Vec<Block> = Vec::new();
+        let mut next_coors: (i32, i32, i32) = (most_x_block.0, 0, least_z_block.2);
+
+        while let Some(block) = xyz_hash.get(&next_coors) {
+            top_right_bus.push((*block).clone());
+            next_coors.0 -= 1;
+        }
+
+        let mut top_left_bus: Vec<Block> = Vec::new();
+        let mut next_coors: (i32, i32, i32) = (least_x_block.0, 0, least_z_block.2);
+
+        while let Some(block) = xyz_hash.get(&next_coors) {
+            top_left_bus.push((*block).clone());
+            next_coors.0 += 1;
+        }
+
+        bottom_right_bus.reverse();
+        top_right_bus.reverse();
+
+        println!("Found busses, widths: bottom-left: {}, bottom-right: {}, top-left: {}, top-right: {}", bottom_left_bus.len(), bottom_right_bus.len(), top_left_bus.len(), top_right_bus.len());
+
+        let mut bl_id_hash: HashMap<u32, (usize, &Block)> = HashMap::new();
+        bottom_left_bus.iter().for_each(|b| {let len = bl_id_hash.len(); bl_id_hash.insert(b.id, (len, b));});
+
+        let mut br_id_hash: HashMap<u32, (usize, &Block)> = HashMap::new();
+        bottom_right_bus.iter().for_each(|b| {let len = br_id_hash.len(); br_id_hash.insert(b.id, (len, b));});
+
+        let mut tl_id_hash: HashMap<u32, (usize, &Block)> = HashMap::new();
+        top_left_bus.iter().for_each(|b| {let len = tl_id_hash.len(); tl_id_hash.insert(b.id, (len, b));});
+
+        let mut tr_id_hash: HashMap<u32, (usize, &Block)> = HashMap::new();
+        top_right_bus.iter().for_each(|b| {let len = tr_id_hash.len(); tr_id_hash.insert(b.id, (len, b));});
+
+        let mut output: String = String::new();
+
+        for (idx, con) in building.connections.iter().enumerate() {
+            if let Some(v) = con {
+                let id = &v[0].1;
+
+                if let Some((bit, block)) = bl_id_hash.get(id) {
+                    output.push_str(&format!("{idx}: bl[{bit}]\n"));
+                } else if let Some((bit, block)) = br_id_hash.get(id) {
+                    output.push_str(&format!("{idx}: br[{bit}]\n"));
+                } else if let Some((bit, block)) = tl_id_hash.get(id) {
+                    output.push_str(&format!("{idx}: tl[{bit}]\n"));
+                } else if let Some((bit, block)) = tr_id_hash.get(id) {
+                    output.push_str(&format!("{idx}: tr[{bit}]\n"))
+                } else if let Some(block) = &write {
+                    if block.id == *id {
+                        output.push_str(&format!("{idx}: write\n"));
+                    }
+                } else {
+                    panic!("This block is something else: {idx}")
+                }
+            
+            }
+
+        }
+
+        println!("---------------\n{output}");
+
+
+
     }
 
     /// Create text console!!!
@@ -748,7 +909,7 @@ pub mod AdvancedBuildings {
         write: Option<Vec<&dyn Connectible>>,
         pos: [f32; 3],
         rot: [[f32; 3]; 3]
-    ) -> (Building, TextConsolePorts) {
+    ) -> Building {
         // chr + clear + cursor + loc + write
         let connections: Vec<Option<Vec<(u8, u32)>>> = chr.
             into_iter()
@@ -763,20 +924,7 @@ pub mod AdvancedBuildings {
                 )
             ).collect();
 
-
-            let chr_ports: [Option<Vec<(BPortD, u32)>>; 8] = extract_cons(&connections, 0..=7)
-                .try_into()
-                .unwrap(); 
-            let clear: Option<Vec<(BPortD, u32)>> = extract_single(&connections, 8);
-            let cursor: Option<Vec<(BPortD, u32)>> = extract_single(&connections, 9);
-            let loc_ports: [Option<Vec<(BPortD, u32)>>; 8] = extract_cons(&connections, 10..=17)
-                .try_into()
-                .unwrap();
-            let write: Option<Vec<(BPortD, u32)>> = extract_single(&connections, 18);
-
-            let tcp = TextConsolePorts { loc: loc_ports, chr: chr_ports, clear, cursor, write };
-
-        (Building::new(BuildingType::TextConsole, pos, rot, connections), tcp)
+        Building::new(BuildingType::TextConsole, pos, rot, connections)
     }
 
     pub fn HugeMemory(
@@ -786,7 +934,7 @@ pub mod AdvancedBuildings {
         write: Option<Vec<&dyn Connectible>>,
         pos: [f32; 3],
         rot: [[f32; 3]; 3]
-    ) -> (Building, HugeMemoryPorts) { 
+    ) -> Building { 
         // addr[0] + addr[9..=15] + addr[1..=8] + out(same as addr) + value(same as addr) + write
         let connections: Vec<Option<Vec<(u8, u32)>>>  = std::iter::once(&address[0])
             .chain(&address[9..=15])
@@ -808,26 +956,292 @@ pub mod AdvancedBuildings {
                     ).collect()
                 )
             ).collect();
-
-            let get_ports = |additive: usize| -> [Option<Vec<(BPortD, u32)>>; 16] {
-                vec![extract_single(&connections, 0+additive)]
-                    .iter()
-                    .chain(extract_cons(&connections, (9+additive)..=(15+additive)).iter())
-                    .chain(extract_cons(&connections, (1+additive)..=(8+additive)).iter())
-                    .cloned()
-                    .collect::<Vec<Option<Vec<(BPortD, u32)>>>>()
-                    .try_into()
-                    .unwrap()
-            };
-
-            let addr_ports: [Option<Vec<(BPortD, u32)>>; 16] = get_ports(0);
-            let output_ports: [Option<Vec<(BPortD, u32)>>; 16] = get_ports(16);
-            let value_ports = get_ports(32);
-            let write = extract_single(&connections, 48);
-
-            let hmp = HugeMemoryPorts {address: addr_ports, value: value_ports, output: output_ports, write};
         
-        (Building::new(BuildingType::HugeMemory, pos, rot, connections), hmp)
+        Building::new(BuildingType::HugeMemory, pos, rot, connections)
+    }
+
+    pub fn Multiplier(
+        a: [Option<Vec<(BPortD, Block)>>; 16],
+        b: [Option<Vec<(BPortD, Block)>>; 16],
+        upper: [Option<Vec<(BPortD, Block)>>; 16],
+        lower: [Option<Vec<(BPortD, Block)>>; 16],
+        pos: [f32; 3],
+        rot: [[f32; 3]; 3]
+    ) -> Building {
+        /* Multiplier connections: 
+            a[0], a[9..=15], a[1..=8],b[0],b[9..=15],b[1..=8],
+            upper[0],upper[9..=15],lower[0..=2],upper[1],lower[3..=10],
+            lower[11..=12],upper[2],lower[13..=15],upper[3..=8] 
+        */
+
+        let connections: Vec<Option<Vec<(u8, u32)>>> = std::iter::once(&a[0])
+            .chain(&a[9..=15])
+            .chain(&a[1..=8])
+            .chain(std::iter::once(&b[0]))
+            .chain(&b[9..=15])
+            .chain(&b[1..=8])
+            .chain(std::iter::once(&upper[0]))
+            .chain(&upper[9..=15])
+            .chain(&lower[0..=2])
+            .chain(std::iter::once(&upper[1]))
+            .chain(&lower[3..=10])
+            .chain(&lower[11..=12])
+            .chain(std::iter::once(&upper[2]))
+            .chain(&lower[13..=15])
+            .chain(&upper[3..=8])
+            .map(
+                |opt|
+                opt.as_ref().map(
+                    |v|
+                    v.iter().map(
+                        |c|
+                        c.as_u8u32()
+                    ).collect()
+                )
+            ).collect();
+        
+        Building::new(BuildingType::Multiplier, pos, rot, connections)
+    }
+
+    pub fn Divider(
+        a: [Option<Vec<(BPortD, Block)>>; 16],
+        b: [Option<Vec<(BPortD, Block)>>; 16],
+        quot: [Option<Vec<(BPortD, Block)>>; 16],
+        rem: [Option<Vec<(BPortD, Block)>>; 16],
+        pos: [f32; 3],
+        rot: [[f32; 3]; 3]
+    ) -> Building {
+        /*
+            a[0], a[9..=15], a[1..=8], b[0], b[9..=15],
+            b[1..=8], quot[0], quot[9..=15], quot[1..=8], 
+            rem[0], rem[9..=15], rem[1..=8]
+         */
+
+        let connections: Vec<Option<Vec<(u8, u32)>>> = std::iter::once(&a[0])
+            .chain(&a[9..=15])
+            .chain(&a[1..=8])
+            .chain(std::iter::once(&b[0]))
+            .chain(&b[9..=15])
+            .chain(&b[1..=8])
+            .chain(std::iter::once(&quot[0]))
+            .chain(&quot[9..=15])
+            .chain(&quot[1..=8])
+            .chain(std::iter::once(&rem[0]))
+            .chain(&rem[9..=15])
+            .chain(&rem[1..=8])
+            .map(
+                |opt|
+                opt.as_ref().map(
+                    |v|
+                    v.iter().map(
+                        |c|
+                        c.as_u8u32()
+                    ).collect()
+                )
+            ).collect();
+
+        Building::new(BuildingType::Divider, pos, rot, connections)
+    }
+
+    pub fn DualMemory(
+        load_addr: [Option<Vec<(BPortD, Block)>>; 8],
+        save_addr: [Option<Vec<(BPortD, Block)>>; 8],
+        output: [Option<Vec<(BPortD, Block)>>; 8],
+        value: [Option<Vec<(BPortD, Block)>>; 8],
+        write: Option<Vec<(BPortD, Block)>>,
+        pos: [f32; 3],
+        rot: [[f32; 3]; 3]
+    ) -> Building {
+        // sa[0..=4], sa[5..=7], la[0..=7], output[0..=7], value[0..=7], write
+
+        let connections: Vec<Option<Vec<(u8, u32)>>> = save_addr.into_iter()
+            .chain(load_addr)
+            .chain(output)
+            .chain(value)
+            .chain(std::iter::once(write))
+            .map(
+                |opt|
+                opt.as_ref().map(
+                    |v|
+                    v.iter().map(
+                        |c|
+                        c.as_u8u32()
+                    ).collect()
+                )
+            ).collect();
+        
+        Building::new(BuildingType::DualMemory, pos, rot, connections)
+    }
+
+    pub fn MassMemory(
+        addr: [Option<Vec<(BPortD, Block)>>; 12],
+        output: [Option<Vec<(BPortD, Block)>>; 8],
+        value: [Option<Vec<(BPortD, Block)>>; 8],
+        write: Option<Vec<(BPortD, Block)>>,
+        pos: [f32; 3],
+        rot: [[f32; 3]; 3]
+    ) -> Building {
+        // addr[0], addr[9..=11], addr[1..=8], output[0..=7], value[0..=7], write
+
+        let connections: Vec<Option<Vec<(u8, u32)>>> = std::iter::once(&addr[0])
+            .chain(&addr[9..=11])
+            .chain(&addr[1..=8])
+            .chain(&output[0..=7])
+            .chain(&value[0..=7])
+            .chain(std::iter::once(&write))
+            .map(
+                |opt|
+                opt.as_ref().map(
+                    |v|
+                    v.iter().map(
+                        |c|
+                        c.as_u8u32()
+                    ).collect()
+                )
+            ).collect();
+        
+        Building::new(BuildingType::MassMemory, pos, rot, connections)
+    }
+
+    pub fn MassiveMemory(
+        addr: [Option<Vec<(BPortD, Block)>>; 12],
+        output: [Option<Vec<(BPortD, Block)>>; 16],
+        value: [Option<Vec<(BPortD, Block)>>; 16],
+        write: Option<Vec<(BPortD, Block)>>,
+        pos: [f32; 3],
+        rot: [[f32; 3]; 3]
+    ) -> Building {
+        // addr[0], addr[9..=11], addr[1..=8], output[0], output[9..=15], output[1..=8], value[0], value[9..=15], value[1..=8], write
+
+        let connections: Vec<Option<Vec<(u8, u32)>>> = std::iter::once(&addr[0])
+            .chain(&addr[9..=11])
+            .chain(&addr[1..=8])
+            .chain(std::iter::once(&output[0]))
+            .chain(&output[9..=15])
+            .chain(&output[1..=8])
+            .chain(std::iter::once(&value[0]))
+            .chain(&value[9..=15])
+            .chain(&value[1..=8])
+            .chain(std::iter::once(&write))
+            .map(
+                |opt|
+                opt.as_ref().map(
+                    |v|
+                    v.iter().map(
+                        |c|
+                        c.as_u8u32()
+                    ).collect()
+                )
+            ).collect();
+
+        Building::new(BuildingType::MassiveMemory, pos, rot, connections)
+    }
+
+    pub fn Multiplier32Bit( //? fixed
+        a: [Option<Vec<(BPortD, Block)>>; 32],
+        b: [Option<Vec<(BPortD, Block)>>; 32],
+        lower: [Option<Vec<(BPortD, Block)>>; 32],
+        upper: [Option<Vec<(BPortD, Block)>>; 32],
+        pos: [f32; 3],
+        rot: [[f32; 3]; 3]
+    ) -> Building {
+        /* 
+           a[0], a[9..=18], a[1], a[19..=28], a[2], a[29..=31], a[3..=8], 
+           b[0], b[9..=18], b[1], b[19..=28], b[2], b[29..=31], b[3..=8], 
+           upper[0], upper[9..=18], upper[1], upper[19..=28], upper[2], 
+           upper[29..=31], lower[0..=6], upper[3], lower[7..=16], upper[4], 
+           lower[17..=26], upper[5], lower[27..=31], upper[6..=8]
+         */
+
+        let connections: Vec<Option<Vec<(u8, u32)>>> = std::iter::once(&a[0])
+            .chain(&a[9..=18])
+            .chain(std::iter::once(&a[1]))
+            .chain(&a[19..=28])
+            .chain(std::iter::once(&a[2]))
+            .chain(&a[29..=31])
+            .chain(&a[3..=8])
+            .chain(std::iter::once(&b[0]))
+            .chain(&b[9..=18])
+            .chain(std::iter::once(&b[1]))
+            .chain(&b[19..=28])
+            .chain(std::iter::once(&b[2]))
+            .chain(&b[29..=31])
+            .chain(&b[3..=8])
+            .chain(std::iter::once(&upper[0]))
+            .chain(&upper[9..=18])
+            .chain(std::iter::once(&upper[1]))
+            .chain(&upper[19..=28])
+            .chain(std::iter::once(&upper[2]))
+            .chain(&upper[29..=31])
+            .chain(&lower[0..=6])
+            .chain(std::iter::once(&upper[3]))
+            .chain(&lower[7..=16])
+            .chain(std::iter::once(&upper[4]))
+            .chain(&lower[17..=26])
+            .chain(std::iter::once(&upper[5]))
+            .chain(&lower[27..=31])
+            .chain(&a[6..=8])
+            .map(
+                |opt|
+                opt.as_ref().map(
+                    |v|
+                    v.iter().map(
+                        |c|
+                        c.as_u8u32()
+                    ).collect()
+                )
+            ).collect();
+        
+        Building::new(BuildingType::Multiplier32Bit, pos, rot, connections)
+    }
+
+    pub fn Divider32Bit(
+        a: [Option<Vec<(BPortD, Block)>>; 32],
+        b: [Option<Vec<(BPortD, Block)>>; 32],
+        quot: [Option<Vec<(BPortD, Block)>>; 32],
+        rem: [Option<Vec<(BPortD, Block)>>; 32],
+        pos: [f32; 3],
+        rot: [[f32; 3]; 3]
+    ) -> Building {
+        /*
+            a[0], a[17..=24], a[25..=31], a[1..=8], a[9..=16], b[0],
+            b[17..=24], b[25..=31], b[1..=8], b[9..=16], quot[0],
+            quot[17..=24], quot[25..=31], quot[1..=8], quot[9..=16],
+            rem[0], rem[17..=24], rem[25..=31], rem[1..=8], rem[9..=16]
+         */
+
+        let connections: Vec<Option<Vec<(u8, u32)>>> = std::iter::once(&a[0])
+            .chain(&a[17..=24])
+            .chain(&a[25..=31])
+            .chain(&a[1..=8])
+            .chain(&a[9..=16])
+            .chain(std::iter::once(&b[0]))
+            .chain(&b[17..=24])
+            .chain(&b[25..=31])
+            .chain(&b[1..=8])
+            .chain(&b[9..=16])
+            .chain(std::iter::once(&quot[0]))
+            .chain(&quot[17..=24])
+            .chain(&quot[25..=31])
+            .chain(&quot[1..=8])
+            .chain(&quot[9..=16])
+            .chain(std::iter::once(&rem[0]))
+            .chain(&rem[17..=24])
+            .chain(&rem[25..=31])
+            .chain(&rem[1..=8])
+            .chain(&rem[9..=16])
+            .map(
+                |opt|
+                opt.as_ref().map(
+                    |v|
+                    v.iter().map(
+                        |c|
+                        c.as_u8u32()
+                    ).collect()
+                )
+            ).collect();
+
+        Building::new(BuildingType::Divider32Bit, pos, rot, connections)
     }
 
 }
@@ -972,3 +1386,6 @@ pub mod lut {
 
 }
 
+pub fn save_string() -> String {
+    SAVE.lock().unwrap().as_string()
+}

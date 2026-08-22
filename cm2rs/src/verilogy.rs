@@ -1,0 +1,157 @@
+use crate::*;
+
+#[derive(Clone, Debug)]
+pub struct VBlock {inputs: Vec<u32>, outputs: Vec<u32>, blocktype: BlockType}
+impl VBlock {
+    pub fn from_type(blocktype: BlockType) -> Self {
+        VBlock { inputs: Vec::new(), outputs: Vec::new(), blocktype }
+    }
+}
+
+pub fn save_to_verilog(save: Save) -> String {
+    let mut io: String = String::new();
+    let mut code: String = String::new();
+
+    let mut vblocks: HashMap<u32, VBlock> = HashMap::new();
+
+    for block in save.blocks {
+        vblocks.insert(block.id, VBlock::from_type(block.blocktype));
+    }
+
+    for con in save.connections {
+        vblocks.get_mut(&con.src).unwrap().outputs.push(con.dst);
+        vblocks.get_mut(&con.dst).unwrap().inputs.push(con.src);
+    }
+
+    let sig = |id: u32| -> String {
+        format!("g{id}")
+    };
+
+    let gen_expr = |vblock: &VBlock| -> String {
+        let do_neg: bool = matches!(vblock.blocktype, BlockType::Nor | BlockType::Nand | BlockType::Xnor);
+        let chr = match vblock.blocktype {
+            BlockType::And | BlockType::Nand => '&',
+            BlockType::Or | BlockType::Nor | BlockType::Node | BlockType::Text { .. }=> '|',
+            BlockType::Xor | BlockType::Xnor => '^',
+            _ => panic!("Unsupported block type: {:?}", vblock.blocktype)
+        };
+
+        let mut buf: String = String::new();
+
+        if do_neg {
+            buf.push_str("!(");
+        }
+
+        buf.push_str(&sig(vblock.inputs[0]));
+
+        for input in &vblock.inputs[1..] {
+            buf.push(' ');
+            buf.push(chr);
+            buf.push(' ');
+            buf.push_str(&sig(*input));
+        }
+
+        if do_neg {
+            buf.push(')');
+        }
+
+        buf
+
+    };
+
+    let gen_line = |id: u32, vblock: VBlock| -> String {
+        let mut line_buf: String = String::new();
+
+        if true {
+            if matches!(vblock.blocktype, BlockType::FlipFlop) {
+                line_buf.push_str("reg ");
+                line_buf.push_str(&sig(id));
+
+                if !(vblock.inputs.len() == 0) {
+                    line_buf.push_str(";\nalways @(posedge ");
+                    line_buf.push_str(&sig(vblock.inputs[0]));
+
+                    for en in &vblock.inputs[1..] {
+                        line_buf.push_str(" or posedge ");
+                        line_buf.push_str(&sig(*en));
+                    }
+
+                    line_buf.push(')');
+                    line_buf.push_str(&sig(id));
+
+                    line_buf.push_str(" <= ~");
+                    line_buf.push_str(&sig(id));
+                    
+                } else {
+                    line_buf.push_str(";\nalways @(*) ");
+                    line_buf.push_str(&sig(id));
+                    line_buf.push_str(" = ");
+                    if matches!(vblock.blocktype, BlockType::Nor | BlockType::Nand | BlockType::Xnor) {
+                        line_buf.push_str("1'b1");
+                    } else {
+                        line_buf.push_str("1'b0");
+                    }
+                }
+                
+            } else {
+                line_buf.push_str("wire ");
+                line_buf.push_str(&sig(id));
+                line_buf.push_str(";\nassign ");
+                line_buf.push_str(&sig(id));
+                line_buf.push_str(" = ");
+
+                if !(vblock.inputs.len() == 0) {
+                    
+                    line_buf.push_str(&gen_expr(&vblock));
+
+                } else {
+                    if matches!(vblock.blocktype, BlockType::Nor | BlockType::Nand | BlockType::Xnor) {
+                        line_buf.push_str("1'b1");
+                    } else {
+                        line_buf.push_str("1'b0");
+                    }
+                }
+            }
+
+            line_buf.push(';');
+            line_buf.push('\n');
+            line_buf
+            
+        } else {
+            "module main();\nendmodule\n".to_string()
+        }
+    };
+
+    let mut ios: Vec<String> = Vec::new();
+
+    for (&id, vblock) in vblocks.iter() {
+        match vblock.blocktype {
+            BlockType::Text { symbol } => {
+                if !(vblock.inputs.len() == 0 && vblock.outputs.len() == 0) {
+                if vblock.inputs.len() == 0 {
+                    ios.push(format!("input wire {}", symbol as char));
+                    code.push_str(&format!("wire {0};\nassign {} = {};\n", sig(id), symbol as char));
+                } else {
+                    ios.push(format!("output wire {}", symbol as char));
+                    code.push_str(&format!("assign {} = {};\n", symbol as char, gen_expr(&vblock)));
+                }
+            }
+            }
+            _ => code.push_str(&gen_line(id, vblock.clone()))
+        };
+    }
+
+    if ios.len() > 0 {
+        io.push_str(&ios[0]);
+        for inout in &ios[1..] {
+            io.push(',');
+            io.push('\n');
+            io.push_str(inout);
+        }
+    }
+
+    format!(
+        "module main (\n{});\n{}endmodule\n// THIS WAS AUTO-GENERATED BY VERILOGY\n",
+        io, code
+    )
+}
