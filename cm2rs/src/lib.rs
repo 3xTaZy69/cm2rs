@@ -1,15 +1,17 @@
-#![allow(unused)]
-
 pub mod sim;
 pub mod sms;
 pub mod verilogy;
-pub mod bus;
-use std::{clone, mem::discriminant, sync::{LazyLock, Mutex, atomic::AtomicU32}};
-use std::collections::HashMap;
+pub mod rtl;
 
+use std::{mem::discriminant, sync::{LazyLock, Mutex, atomic::AtomicU32}};
+use std::collections::HashMap;
 use crate::sms::SmsBlock;
+
+
 static NEXT_ID: AtomicU32 = AtomicU32::new(1);
 pub static SAVE: LazyLock<Mutex<Save>> = LazyLock::new(|| Mutex::new(Save::new()));
+
+
 
 #[derive(Clone, Debug, Copy, PartialEq)]
 pub enum AntennaContext {
@@ -561,17 +563,7 @@ impl Building {
             self.rotation[2][2],
         )
         };
-        let constr = |con: &Option<(u8, u32)>| -> String {
-            match con {
-                &None => String::new(),
-                &Some(connection) => {
-                    format!("{}{}",
-                    connection.0,
-                    connection.1)
-                }
-            }
-        };
-        let mut connetionsvec: Vec<String> = self.connections.clone().into_iter().map(|con| {
+        let connetionsvec: Vec<String> = self.connections.clone().into_iter().map(|con| {
             if let Some(connection) = con {
                 let mut allcon: Vec<String> = Vec::new();
                 for conn in connection {
@@ -748,6 +740,7 @@ impl Connectible for (BPortD, Block) {
 
 #[allow(non_snake_case)]
 pub mod AdvancedBuildings {
+
     use super::*;
 
     pub const DEFAULT_UP_Z_ROT: [[f32; 3]; 3] = [[0.0,0.0,-1.0],[-1.0,0.0,0.0],[0.0,1.0,0.0]];
@@ -767,6 +760,7 @@ pub mod AdvancedBuildings {
         vec
     }
 
+    /// function used to find connections order in a building
     pub fn find_sequence(blocks: Vec<Block>, building: Building) {
         // 4 buses
         eprintln!("Finding connections");
@@ -874,13 +868,13 @@ pub mod AdvancedBuildings {
             if let Some(v) = con {
                 let id = &v[0].1;
 
-                if let Some((bit, block)) = bl_id_hash.get(id) {
+                if let Some((bit, _)) = bl_id_hash.get(id) {
                     output.push_str(&format!("{idx}: bl[{bit}]\n"));
-                } else if let Some((bit, block)) = br_id_hash.get(id) {
+                } else if let Some((bit, _)) = br_id_hash.get(id) {
                     output.push_str(&format!("{idx}: br[{bit}]\n"));
-                } else if let Some((bit, block)) = tl_id_hash.get(id) {
+                } else if let Some((bit, _)) = tl_id_hash.get(id) {
                     output.push_str(&format!("{idx}: tl[{bit}]\n"));
-                } else if let Some((bit, block)) = tr_id_hash.get(id) {
+                } else if let Some((bit, _)) = tr_id_hash.get(id) {
                     output.push_str(&format!("{idx}: tr[{bit}]\n"))
                 } else if let Some(block) = &write {
                     if block.id == *id {
@@ -1244,6 +1238,74 @@ pub mod AdvancedBuildings {
         Building::new(BuildingType::Divider32Bit, pos, rot, connections)
     }
 
+    pub enum BuildingPorts {
+        TextConsole {
+            loc: [Option<Vec<(BPortD, u32)>>; 8],
+            chr: [Option<Vec<(BPortD, u32)>>; 8],
+            clear: Option<Vec<(BPortD, u32)>>,
+            cursor: Option<Vec<(BPortD, u32)>>,
+            write: Option<Vec<(BPortD, u32)>>
+        },
+        HugeMemory {
+            address: [Option<Vec<(BPortD, u32)>>; 16],
+            value: [Option<Vec<(BPortD, u32)>>; 16],
+            output: [Option<Vec<(BPortD, u32)>>; 16],
+            write: Option<Vec<(BPortD, u32)>>
+        },
+        DualMemory {
+            load_addr: [Option<Vec<(BPortD, u32)>>; 8],
+            save_addr: [Option<Vec<(BPortD, u32)>>; 8],
+            output: [Option<Vec<(BPortD, u32)>>; 8],
+            value: [Option<Vec<(BPortD, u32)>>; 8],
+            write: Option<Vec<(BPortD, u32)>>,
+        }
+    }
+
+    pub fn fetch_ports(building: &Building) -> BuildingPorts {
+        let convert_cons = |cons: Option<Vec<(u8, u32)>>| -> Option<Vec<(BPortD, u32)>> {
+                cons.map(
+                    |v|
+                    v.into_iter().map(
+                        |(d, i)| {
+                            let d = match d {
+                                0 => BPortD::Output,
+                                1 => BPortD::Input,
+                                _ => panic!("Expected 0 or 1 as connection, got other"),
+                            };
+                            (d, i)
+                        }
+                    ).collect()
+                )
+        };
+
+
+        match building.buildtype {
+            BuildingType::DualMemory => {
+                todo!()
+            }
+            BuildingType::HugeMemory => {
+                todo!()
+            }
+            BuildingType::TextConsole => {
+                let mut connections = building.connections.iter();
+
+                let chr: [Option<Vec<(BPortD, u32)>>; 8] = 
+                    std::array::from_fn(|_| convert_cons(connections.next().unwrap().clone()));
+                
+                let clear: Option<Vec<(BPortD, u32)>> = convert_cons(connections.next().unwrap().clone());
+                let cursor: Option<Vec<(BPortD, u32)>> = convert_cons(connections.next().unwrap().clone());
+
+                let loc: [Option<Vec<(BPortD, u32)>>; 8] = 
+                    std::array::from_fn(|_| convert_cons(connections.next().unwrap().clone()));
+
+                let write: Option<Vec<(BPortD, u32)>> = convert_cons(connections.next().unwrap().clone());
+
+                 BuildingPorts::TextConsole { loc, chr, clear, cursor, write }
+            }
+            _ => todo!()
+        }
+    }
+
 }
 
 pub mod lut {
@@ -1350,28 +1412,28 @@ pub mod lut {
                             nots += 1 * (i as u64 - 1);
                             ors += 1 * (i as u64 - 1);
                             nands += 4 * (i as u64 - 1);
-                            (i as u64 - 1)
+                            i as u64 - 1
                         }
                         BlockType::And => {
                             ands += 1 * (i as u64 - 1);
                             nands += 2 * (i as u64 - 1);
-                            (i as u64 - 1)
+                            i as u64 - 1
                         }
                         BlockType::Nand => {
                             nands += 1 * (i as u64 - 1);
-                            (i as u64 - 1)
+                            i as u64 - 1
                         }
                         BlockType::Or => {
                             ors += 1 * (i as u64 - 1);
                             nands += 3 * (i as u64 - 1);
-                            (i as u64 - 1)
+                            i as u64 - 1
                         }
                         BlockType::Xor => {
                             nands += 4 * (i as u64 - 1);
                             xors += 1 * (i as u64 - 1);
-                            (i as u64 - 1)
+                            i as u64 - 1
                         }
-                        _ => ( i as u64 - 1 )
+                        _ => i as u64 - 1 
                     }
                 }
 

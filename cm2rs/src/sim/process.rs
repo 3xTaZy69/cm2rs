@@ -9,12 +9,12 @@ impl Emulator {
                 BlockType::FlipFlop => {
                     let mut count = 0;
                     for input in &block.inputs {
-                        if self.states[*input as usize - 1] {
+                        if self.states[*input] {
                             count += 1;
                         }
                     }
                     if count > block.previnputs {
-                        block.new_state = !self.states[block.id as usize - 1];
+                        block.new_state = !self.states[block.id];
                     }
                     block.previnputs = count;
                 }
@@ -33,7 +33,7 @@ impl Emulator {
                     block.new_state = *self.channels.get(&channel).unwrap();
                     *self.channels.get_mut(&channel).unwrap() = false;
                     for input in &block.inputs {
-                        if self.states[*input as usize - 1] {
+                        if self.states[*input] {
                             block.new_state = true;
                             *self.channels.get_mut(&channel).unwrap() = true;
                             break;
@@ -42,9 +42,9 @@ impl Emulator {
                 }
                 BlockType::Node => {
                     for input in &block.inputs {
-                        self.states[block.id as usize - 1] = false;
-                        if self.states[*input as usize - 1] {
-                            self.states[block.id as usize - 1] = true;
+                        self.states[block.id] = false;
+                        if self.states[*input] {
+                            self.states[block.id] = true;
                         }
                     }
                 }
@@ -56,139 +56,56 @@ impl Emulator {
         }
     }
     pub fn calculate_gpu_by_cpu(&mut self) {
-        // test
-        for block in &mut self.gpu_blocks {
-            match block.blocktype {
-                BlockType::And => {
-                    let mut state = true;
-                    for input in &block.inputs {
-                        state = self.states[*input as usize - 1] && state;
-                    }
-                    block.new_state = state;
-                }
-                BlockType::Or => {
-                    block.new_state = false;
-                    for input in &block.inputs {
-                        if self.states[*input as usize - 1] == true {
-                            block.new_state = true;
-                            break;
-                        }
-                    }
-                }
-                BlockType::Xor => {
-                    block.new_state = false;
-                    let mut count = 0;
-                    for input in &block.inputs {
-                        if self.states[*input as usize - 1] == true {
-                            count += 1;
-                        }
-                    }
-                    if count % 2 == 1 {
-                        block.new_state = true;
-                    }
-                }
-                BlockType::Xnor => {
-                    block.new_state = false;
-                    let mut count = 0;
-                    for input in &block.inputs {
-                        if self.states[*input as usize - 1] == true {
-                            count += 1;
-                        }
-                    }
-                    if count % 2 == 0 {
-                        block.new_state = true;
-                    }
-                }
-                BlockType::Button => {
-                    block.new_state = false;
-                    for input in &block.inputs {
-                        if self.states[*input as usize - 1] == true {
-                            block.new_state = true;
-                            break;
-                        }
-                    }
-                }
-                BlockType::Nor => {
-                    block.new_state = true;
-                    for input in &block.inputs {
-                        if self.states[*input as usize - 1] == true {
-                            block.new_state = false;
-                            break;
-                        }
-                    }
-                }
-                BlockType::Tile { .. } => {
-                    block.new_state = false;
-                    for input in &block.inputs {
-                        if self.states[*input as usize - 1] == true {
-                            block.new_state = true;
-                            break;
-                        }
-                    }
-                }
-                BlockType::Led { .. } => {
-                    block.new_state = false;
-                    for input in &block.inputs {
-                        if self.states[*input as usize - 1] == true {
-                            block.new_state = true;
-                            break;
-                        }
-                    }
-                }
-                BlockType::Ledmixer { .. } => {
-                    block.new_state = false;
-                    for input in &block.inputs {
-                        if self.states[*input as usize - 1] == true {
-                            block.new_state = true;
-                            break;
-                        }
-                    }
-                }
-                BlockType::Conductor => {
-                    block.new_state = false;
-                    for input in &block.inputs {
-                        if self.states[*input as usize - 1] == true {
-                            block.new_state = true;
-                            break;
-                        }
-                    }
-                }
-                BlockType::ConductorV2 => {
-                    block.new_state = false;
-                    for input in &block.inputs {
-                        if self.states[*input as usize - 1] == true {
-                            block.new_state = true;
-                            break;
-                        }
-                    }
-                }
-                BlockType::Text { .. } => {
-                    block.new_state = false;
-                    for input in &block.inputs {
-                        if self.states[*input as usize - 1] == true {
-                            block.new_state = true;
-                            break;
-                        }
-                    }
-                }
-                BlockType::Nand => {
-                    let mut state = true;
-                    for input in &block.inputs {
-                        state = !(self.states[*input as usize - 1] && state);
-                    }
-                    block.new_state = state;
-                }
-                BlockType::Sound { .. } => {
-                    block.new_state = false;
-                    for input in &block.inputs {
-                        if self.states[*input as usize - 1] == true {
-                            block.new_state = true;
-                            break;
-                        }
-                    }
-                }
-                _ => {}
+    let states = self.states.as_slice();
+
+    for block in &mut self.gpu_blocks {
+        match block.blocktype {
+            BlockType::And => {
+                block.new_state = block
+                    .inputs
+                    .iter()
+                    .all(|&i| unsafe { *states.get_unchecked(i) });
             }
+            BlockType::Nand => {
+                block.new_state = !block
+                    .inputs
+                    .iter()
+                    .all(|&i| unsafe { *states.get_unchecked(i) });
+            }
+            BlockType::Or
+            | BlockType::Button
+            | BlockType::Tile { .. }
+            | BlockType::Led { .. }
+            | BlockType::Ledmixer { .. }
+            | BlockType::Conductor
+            | BlockType::ConductorV2
+            | BlockType::Text { .. }
+            | BlockType::Sound { .. } => {
+                block.new_state = block
+                    .inputs
+                    .iter()
+                    .any(|&i| unsafe { *states.get_unchecked(i) });
+            }
+            BlockType::Nor => {
+                block.new_state = !block
+                    .inputs
+                    .iter()
+                    .any(|&i| unsafe { *states.get_unchecked(i) });
+            }
+            BlockType::Xor => {
+                block.new_state = block
+                    .inputs
+                    .iter()
+                    .fold(false, |acc, &i| acc ^ unsafe { *states.get_unchecked(i) });
+            }
+            BlockType::Xnor => {
+                block.new_state = !block
+                    .inputs
+                    .iter()
+                    .fold(false, |acc, &i| acc ^ unsafe { *states.get_unchecked(i) });
+            }
+            _ => {}
         }
+    }
     }
 }

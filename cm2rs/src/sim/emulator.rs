@@ -44,11 +44,10 @@ impl Emulator {
     pub fn tick(&mut self) {
         self.calculate_cpu();
         self.calculate_gpu_by_cpu();
-        for block in &self.cpu_blocks {
-            self.states[block.id as usize - 1] = block.new_state;
-        }
-        for block in &self.gpu_blocks {
-            self.states[block.id as usize - 1] = block.new_state;
+        
+
+        for block in self.cpu_blocks.iter().chain(self.gpu_blocks.iter()) {
+            self.states[block.id] = block.new_state;
         }
     }
     pub fn loop_emulator(&mut self) {
@@ -60,6 +59,6 @@ impl Emulator {
         self.states[id as usize - 1] = state;
     }
     pub fn print_state(&mut self, id: u32) {
-        println!("{}", self.states[id as usize - 1]);
+        eprintln!("{}", self.states[id as usize - 1]);
     }
 }
