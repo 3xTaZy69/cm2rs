@@ -1,4 +1,4 @@
-use std::{collections::HashMap, mem::discriminant, str::Matches, string};
+use std::{collections::HashMap, mem::discriminant};
 use super::*;
 #[derive(Clone, Debug)]
 pub enum Token {
@@ -262,7 +262,7 @@ impl Lexer {
         }
     }
     pub fn lex(&mut self) {
-        let mut tok: Token = Token::SEMICOLON;
+        let mut tok: Token;
         while let Some(c) = self.peek() {
             if c.is_ascii_alphabetic() {
                 tok = self.word();
@@ -377,27 +377,27 @@ impl Parser {
         }
     }
     pub fn requireint(&self) {
-        if let Some(Token::INT(x)) = self.peek() {} else {
+        if let Some(Token::INT(..)) = self.peek() {} else {
             panic!("Expected int got {:?}", self.peek())
         }
     }
     pub fn requiresv(&self) {
-        if let Some(Token::SAVEFILE(x)) = self.peek() {} else {
+        if let Some(Token::SAVEFILE(..)) = self.peek() {} else {
             panic!("Expected savefile got {:?}", self.peek())
         }
     }
     pub fn requirevar(&self) {
-        if let Some(Token::VAR(x)) = self.peek() {} else {
+        if let Some(Token::VAR(..)) = self.peek() {} else {
             panic!("Expected name got {:?}", self.peek())
         }
     }
     pub fn requiretok(&self, tok: Token) {
-        if matches!(self.peek(), Some(tok)) {} else {
+        if matches!(self.peek(), Some(..)) {} else {
             panic!("Expected {tok:?} got {:?}", self.peek())
         }
     }
     pub fn requirestring(&self) {
-        if let Some(Token::STRING(x)) = self.peek() {} else {
+        if let Some(Token::STRING(..)) = self.peek() {} else {
             panic!("Expected string, got {:?}", self.peek())
         }
     }
@@ -559,7 +559,7 @@ impl Parser {
 impl Parser {
     pub fn parse_decl(&mut self) -> Expr {
         self.advance();
-        let mut off;
+        let off;
         if matches!(self.peek(), Some(Token::PLUS) | Some(Token::MINUS)) {
             off = self.getoff();
         } else {
@@ -679,7 +679,7 @@ impl Parser {
         } else {
             match tok.clone().unwrap() {
                 Token::LET => self.parse_decl(),
-                Token::VAR(x) => self.parse_assign(),
+                Token::VAR(..) => self.parse_assign(),
                 Token::IF => self.parse_if(),
                 Token::FOR => self.parse_for(),
                 Token::MERGE => self.parse_merge(),
@@ -702,7 +702,7 @@ impl Parser {
         code
     }
     pub fn parse(&mut self) {
-        while let Some(tok) = self.peek() {
+        while let Some(..) = self.peek() {
             let expr = self.parse_line();
             self.ast.push(expr);
         }
@@ -719,7 +719,6 @@ pub enum Varval {
 
 pub struct Evaluator {
     pub ast: Vec<Expr>,
-    pos: usize,
     pub symtab: HashMap<String, Varval>,
     pub decodedtab: HashMap<String, Save>,
     pub decodedpostab: HashMap<String, HashMap<(u32, u32, u32), u32>>,
@@ -739,7 +738,7 @@ impl Varval {
         }
     }
     pub fn extract_save(&self) -> String {
-        if let Varval::Savefile(save, x, y, z) = self {
+        if let Varval::Savefile(save, ..) = self {
             save.clone()
         } else {
             panic!("Cant extract string from other variable type than savefile")
@@ -754,9 +753,9 @@ impl Varval {
     }
     pub fn extract_val(&self) -> String {
         match self {
-            Varval::Block(x) => format!("{:?}", self.extract_block()),
+            Varval::Block(..) => format!("{:?}", self.extract_block()),
             Varval::Int(x) => x.to_string(),
-            Varval::Savefile(text,x ,y , z) => text.clone(),
+            Varval::Savefile(text, ..) => text.clone(),
             Varval::String(string) => string.clone()
         }
     }
@@ -764,7 +763,7 @@ impl Varval {
 
 impl Evaluator {
     pub fn new(ast: Vec<Expr> ) -> Evaluator {
-        Evaluator { ast, pos: 0, symtab: HashMap::new(), decodedtab: HashMap::new(), decodedpostab: HashMap::new(), idtoblock: HashMap::new(), constoadd: HashMap::new(), memein: HashMap::new(), do_merge: false }
+        Evaluator { ast, symtab: HashMap::new(), decodedtab: HashMap::new(), decodedpostab: HashMap::new(), idtoblock: HashMap::new(), constoadd: HashMap::new(), memein: HashMap::new(), do_merge: false }
     }
     pub fn eval_exp(&mut self, expr: Expr) -> f32 {
         match expr.clone() {
@@ -812,12 +811,11 @@ impl Evaluator {
                     Bop::Mul => l * r,
                     Bop::Sub => l - r,
                     Bop::Modulo => l % r,
-                    _ => panic!("{expr:?} is not a number expression")
                 }
             }
             Expr::UnOp { operand, op } => {
                 let mut vname = String::new();
-                let mut o = match *operand.clone() {
+                let o = match *operand.clone() {
                     Expr::Var { name } => {
                         vname = name;
                         self.eval_exp(*operand)
@@ -853,7 +851,7 @@ impl Evaluator {
     }
     pub fn eval_decl(&mut self, expr: Expr) {
         if let Expr::Decl { name, value, off } = expr {
-            let mut vvalue: Varval;
+            let vvalue: Varval;
             let x;
             let y;
             let z;
@@ -864,7 +862,7 @@ impl Evaluator {
             }
             if let Expr::Savefile { text } = *value.clone() {
                 vvalue = Varval::Savefile(text.clone(), x, y, z);
-                let mut save = Save::from_string(text.clone(), [x, y, z]);
+                let save = Save::from_string(text.clone(), [x, y, z]);
                 self.decodedpostab.insert(name.clone(), HashMap::new());
                 let pat = self.decodedpostab.get_mut(&name).unwrap();
                 self.idtoblock.insert(name.clone(), HashMap::new());
@@ -925,7 +923,7 @@ impl Evaluator {
                 if (sname.as_str() != name.as_str()) && (sname.as_str() != "lower") {
                     src += vlen as u32;
                 }
-                if (name.as_str() != "lower") {
+                if name.as_str() != "lower" {
                     dst += vlen as u32;
                 }
                 println!("src: {src}, dst: {dst}");
@@ -933,7 +931,7 @@ impl Evaluator {
             } else {
                 let vvalue = self.eval_exp(*value);
                 if let Expr::Var { name } = *dest {
-                    let ptr = self.symtab.insert(name, Varval::Int(vvalue));
+                    let _ = self.symtab.insert(name, Varval::Int(vvalue));
                     return vvalue;
                 } else {
                     panic!("Expecter variable or offset, got: {:?}", *dest);
@@ -988,7 +986,7 @@ impl Evaluator {
                     self.write_var(name.clone(), x);
                 }
                 self.eval_code(code.clone());
-                if let Expr::UnOp { operand, op } = *addition.clone() {
+                if let Expr::UnOp { .. } = *addition.clone() {
                     let tmp = self.eval_exp(*addition.clone());
                     rewrite = Some(self.symtab.get(&name).unwrap().clone());
                     self.write_var(name.clone(), Varval::Int(tmp));

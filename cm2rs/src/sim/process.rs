@@ -1,6 +1,5 @@
-use core::panic;
 use rand;
-use crate::{*, sim::{entity::*, emulator::*}};
+use crate::{*, sim::emulator::*};
 
 impl Emulator {
     pub fn calculate_cpu(&mut self) {
@@ -18,7 +17,7 @@ impl Emulator {
                     }
                     block.previnputs = count;
                 }
-                BlockType::Delay { ticks } => {
+                BlockType::Delay { .. } => {
                     block.new_state = false;
                     block.delay.retain_mut(|i| {
                         *i -= 1;
@@ -28,7 +27,7 @@ impl Emulator {
                         *i > 0
                     });
                 }
-                BlockType::Antenna { channel, context } => {
+                BlockType::Antenna { channel, .. } => {
                     // local emulator so contexts don`t matter
                     block.new_state = *self.channels.get(&channel).unwrap();
                     *self.channels.get_mut(&channel).unwrap() = false;

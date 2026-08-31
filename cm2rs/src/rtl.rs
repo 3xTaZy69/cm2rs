@@ -63,21 +63,20 @@ impl Bus for Wire {
         let len = std::cmp::min(self.contains.len(), rhs_contains.len());
 
         for b in 0..len {
-            self.contains[self.width-b-1] >> rhs_contains[rhs_width-b-1];
+            let _ = self.contains[self.width-b-1] >> rhs_contains[rhs_width-b-1];
         }
     }
     fn connect_bitwise_msb(&self, rhs: &dyn Bus) {
         let rhs_contains = rhs.contents();
-        let rhs_width = rhs.width();
         let len = std::cmp::min(self.contains.len(), rhs_contains.len());
 
         for b in 0..len {
-            self.contains[b] >> rhs_contains[b];
+            let _ = self.contains[b] >> rhs_contains[b];
         }
     }
     fn connect_logical(&self, rhs: &Block) {
         for block in &self.contains {
-            block >> rhs;
+            let _ = block >> rhs;
         }
     }
     fn slice(&self, start: usize, end: usize) -> Vec<Block> {
@@ -90,7 +89,7 @@ impl Bus for Wire {
     }
     fn fan_in(&self, rhs: &Block) {
         for block in &self.contains {
-            block << rhs;
+            let _ = block << rhs;
         }
     }
 }
@@ -163,24 +162,27 @@ impl Bus for Const {
         let len = std::cmp::min(self.contains.len(), rhs_contains.len());
 
         for b in 0..len {
-            self.contains[self.width-b-1] >> rhs_contains[rhs_width-b-1];
+            let _ = self.contains[self.width-b-1] >> rhs_contains[rhs_width-b-1];
         }
     }
     fn connect_bitwise_msb(&self, rhs: &dyn Bus) {
         let rhs_contains = rhs.contents();
-        let rhs_width = rhs.width();
         let len = std::cmp::min(self.contains.len(), rhs_contains.len());
 
         for b in 0..len {
-            self.contains[b] >> rhs_contains[b];
+            let _ = self.contains[b] >> rhs_contains[b];
         }
     }
     fn connect_logical(&self, rhs: &Block) {
         for block in &self.contains {
-            block >> rhs;
+            let _ = block >> rhs;
         }
     }
-    fn fan_in(&self, rhs: &Block) {}
+    fn fan_in(&self, rhs: &Block) {
+        for block in &self.contains {
+            let _ = block << rhs;
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -221,21 +223,20 @@ impl Bus for CustomBus {
         let len = std::cmp::min(self.contains.len(), rhs_contains.len());
 
         for b in 0..len {
-            self.contains[self.width-b-1] >> rhs_contains[rhs_width-b-1];
+            let _ = self.contains[self.width-b-1] >> rhs_contains[rhs_width-b-1];
         }
     }
     fn connect_bitwise_msb(&self, rhs: &dyn Bus) {
         let rhs_contains = rhs.contents();
-        let rhs_width = rhs.width();
         let len = std::cmp::min(self.contains.len(), rhs_contains.len());
 
         for b in 0..len {
-            self.contains[b] >> rhs_contains[b];
+            let _ = self.contains[b] >> rhs_contains[b];
         }
     }
     fn connect_logical(&self, rhs: &Block) {
         for block in &self.contains {
-            block >> rhs;
+            let _ = block >> rhs;
         }
     }
     fn slice(&self, start: usize, end: usize) -> Vec<Block> {
@@ -249,7 +250,7 @@ impl Bus for CustomBus {
     }
     fn fan_in(&self, rhs: &Block) {
         for block in &self.contains {
-            block << rhs;
+            let _ = block << rhs;
         }
     }
 }
@@ -273,21 +274,20 @@ impl Bus for Reg {
         let len = std::cmp::min(self.contains.len(), rhs_contains.len());
 
         for b in 0..len {
-            self.contains[self.width-b-1] >> rhs_contains[rhs_width-b-1];
+            let _ = self.contains[self.width-b-1] >> rhs_contains[rhs_width-b-1];
         }
     }
     fn connect_bitwise_msb(&self, rhs: &dyn Bus) {
         let rhs_contains = rhs.contents();
-        let rhs_width = rhs.width();
         let len = std::cmp::min(self.contains.len(), rhs_contains.len());
 
         for b in 0..len {
-            self.contains[b] >> rhs_contains[b];
+            let _ = self.contains[b] >> rhs_contains[b];
         }
     }
     fn connect_logical(&self, rhs: &Block) {
         for block in &self.contains {
-            block >> rhs;
+            let _ = block >> rhs;
         }
     }
     fn slice(&self, start: usize, end: usize) -> Vec<Block> {
@@ -301,7 +301,7 @@ impl Bus for Reg {
     }
     fn fan_in(&self, rhs: &Block) {
         for block in &self.contains {
-            block << rhs;
+            let _ = block << rhs;
         }
     }
 }
@@ -448,6 +448,7 @@ impl Adder {
 
         Adder { width, output: out, cout: carryor.contains[0], cin: cout }
     }
+    #[allow(unused)]
     pub fn new_rca(pos: [f32; 3], width: usize, sub: bool, a: &dyn Bus, b: &dyn Bus) -> Self {
         let make_tile = |pos: [f32; 3], cin: &Block, a: &Block, b: &Block| -> (Block, Block) {
             let [x, y, z] = pos;
@@ -479,7 +480,7 @@ impl Adder {
         z -= 3.0;
 
         for i in (0..(width-1)).rev() {
-            let mut adder = make_tile([x, y, z], &carry_in, &a.slice(0, 1)[i], &a.slice(0, 1)[i]);
+            let adder = make_tile([x, y, z], &carry_in, &a.slice(0, 1)[i], &b.slice(0, 1)[i]);
             carry_in = adder.0;
             &adder.1 >> &out.contains[i];
             x -= 2.0;
@@ -500,8 +501,8 @@ impl Adder {
         carries.connect_bitwise_msb(&xors);
         a.connect_bitwise_msb(&xors);
         let a_local = a.slice(0, a.width());
-        &a_local[width-1] >> &not;
-        for (idx, block) in a_local.iter().enumerate() {
+        let _ = &a_local[width-1] >> &not;
+        for (idx, ..) in a_local.iter().enumerate() {
             if idx < carries.contains.len(){
                 let slice = CustomBus::from_vec(a_local[idx+1..].to_vec());
                 slice.connect_logical(&carries.contains[idx]);
@@ -590,7 +591,7 @@ impl Comparison {
         rhs >> &xnors;
         let and = Block::new([x, y + 1.0, z], BlockType::And);
         xnors.connect_logical(&and);
-        and >> gt.output;
+        let _ = and >> gt.output;
         gt
     }
     pub fn new_le(pos: [f32; 3], width: usize, lhs: &dyn Bus, rhs: &dyn Bus) -> Self {
@@ -601,7 +602,7 @@ impl Comparison {
         rhs >> &xnors;
         let and = Block::new([x, y + 1.0, z], BlockType::And);
         xnors.connect_logical(&and);
-        and >> lt.output;
+        let _ = and >> lt.output;
         lt
     }
     pub fn output_vec(&self) -> &Vec<Block> {
@@ -629,9 +630,9 @@ impl Edge {
         let not = Block::new([x, y, z], BlockType::Nor);
         let and = Block::new([x, y, z-1.0], BlockType::And);
         let output_vec = vec![and.clone()];
-        not >> and;
-        input >> &not;
-        input >> &and;
+        let _ = not >> and;
+        let _ = input >> &not;
+        let _ = input >> &and;
         Edge { output: and, output_vec }
     }
     pub fn new_falling(pos: [f32; 3], input: &Block) -> Self {
@@ -640,10 +641,10 @@ impl Edge {
         let nn_in = Block::new([x, y, z-1.0], BlockType::Nor);
         let and = Block::new([x, y, z-2.0], BlockType::And);
         let output_vec = vec![and.clone()];
-        input >> &n_in;
-        n_in >> nn_in;
-        nn_in >> and;
-        n_in >> and;
+        let _ = input >> &n_in;
+        let _ = n_in >> nn_in;
+        let _ = nn_in >> and;
+        let _ = n_in >> and;
         Self { output: and, output_vec }
     }
     pub fn new(pos: [f32; 3], input: &Block, kind: EdgeKind) -> Self {
@@ -776,6 +777,7 @@ impl Shifter {
         }
 
     } 
+    #[allow(unused)]
     pub fn new_multiplier_left(lhs: &dyn Bus, rhs: &dyn Bus, pos: [f32; 3]) {
         // 16 bit logic
         let width = lhs.width();
@@ -828,8 +830,8 @@ impl Mux {
         let false_and = CustomBus::new([x, y, z-1.0], width, BlockType::And);
         let sel_delayed = Block::new([x,y+1.0,z], BlockType::Or);
         let sel_n = Block::new([x,y+1.0,z-1.0], BlockType::Nor);
-        sel >> &sel_delayed;
-        sel >> &sel_n;
+        let _ = sel >> &sel_delayed;
+        let _ = sel >> &sel_n;
         false_and.fan_in(&sel_n);
         true_and.fan_in(&sel_delayed);
         let output = CustomBus::new([x,y,z-2.0],width,BlockType::Node);
@@ -852,10 +854,10 @@ pub struct Replicate {
 impl Replicate {
     pub fn new(pos: [f32; 3], src: &dyn Bus, times: u16) -> Self {
         let width = src.width();
-        let [mut x, mut y, mut z] = pos;
+        let [mut x, y, z] = pos;
         let mut buses: Vec<Block> = Vec::new();
         
-        for time in 0..times {
+        for _ in 0..times {
             let bus = CustomBus::new([x, y, z], width, BlockType::Node);
             src >> &bus;
             buses.extend(bus.contains);
@@ -894,7 +896,7 @@ pub struct Clock {
 impl Clock {
     pub fn new(pos: [f32; 3], timing: u16) -> Self {
         let clock = Block::snew(pos, BlockType::Delay { ticks: timing }, true);
-        clock >> clock;
+        let _ = clock >> clock;
         let output_vec: Vec<Block> = vec![clock.clone()];
 
         Self { output: clock, timing, output_vec }
@@ -904,6 +906,7 @@ impl Clock {
     }
 }
 
+#[allow(unused)]
 pub struct SignExtend {
     output: CustomBus,
     width: usize
@@ -933,6 +936,7 @@ impl SignExtend {
     }
 }
 
+#[allow(unused)]
 pub struct LookUpDecoder {
     output: HashMap<Vec<u64>, Block>,
     input: Option<CustomBus>
@@ -968,9 +972,9 @@ impl LookUpDecoder {
 
             for (idx, bit) in mask.chars().enumerate() {
                 if bit == '1' {
-                    &ors.contains[idx] >> &and;
+                    let _ = &ors.contains[idx] >> &and;
                 } else {
-                    &nors.contains[idx] >> &and;
+                    let _ = &nors.contains[idx] >> &and;
                 }
             }
 
@@ -1010,9 +1014,9 @@ impl LookUpDecoder {
 
             for (idx, bit) in mask_string.chars().enumerate() {
                 if bit == '1' {
-                    &ors.contains[idx] >> &and;
+                    let _ = &ors.contains[idx] >> &and;
                 } else {
-                    &nors.contains[idx] >> &and;
+                    let _ = &nors.contains[idx] >> &and;
                 }
             }
 

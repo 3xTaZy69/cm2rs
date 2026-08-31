@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{*, sim::{entity::*, process::*}};
+use crate::{*, sim::entity::*};
 
 pub struct Emulator {
     // blocks for gpu calculation
@@ -29,7 +29,7 @@ impl Emulator {
         for block in save2.blocks {
             let eblock = block.as_eblock(&hash);
             states.push(eblock.new_state);
-            if let BlockType::Antenna { channel, context} = &block.blocktype {
+            if let BlockType::Antenna { channel, ..} = &block.blocktype {
                 channels.insert(*channel, false);
             }
             if block.isforcpu() {

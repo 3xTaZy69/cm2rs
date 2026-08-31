@@ -1,18 +1,20 @@
+// ====MODULES====
 pub mod sim;
 pub mod sms;
 pub mod verilogy;
 pub mod rtl;
 
-use std::{mem::discriminant, sync::{LazyLock, Mutex, atomic::AtomicU32}};
+// ====DEPENDENCIES====
+use std::{mem::discriminant, sync::{Mutex, atomic::AtomicU32}};
 use std::collections::HashMap;
 use crate::sms::SmsBlock;
 
-
+// ====GLOBALS====
 static NEXT_ID: AtomicU32 = AtomicU32::new(1);
-pub static SAVE: LazyLock<Mutex<Save>> = LazyLock::new(|| Mutex::new(Save::new()));
+pub static SAVE: Mutex<Save> = Mutex::new(Save::new());
 
 
-
+// ==================================================================
 #[derive(Clone, Debug, Copy, PartialEq)]
 pub enum AntennaContext {
     Local = 0,
