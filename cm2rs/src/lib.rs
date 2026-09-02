@@ -227,10 +227,7 @@ pub struct Block {
 
 impl Block {
     pub fn from_string(id: u32, string: String, off: [f32; 3]) -> Block {
-        let structure: Vec<&str> = string
-            .split(|c| c == ',' || c == '+')
-            .filter(|c| !c.is_empty())
-            .collect();
+        let structure: Vec<&str> = string.split(|c| c == ',' || c == '+').collect();
         let blocktypen: i32 = structure[0].parse().expect("Couldnt get block type");
         let x: f32 = structure[2].parse().unwrap_or(0.0);
         let y: f32 = structure[3].parse().unwrap_or(0.0);
@@ -640,18 +637,21 @@ impl Building {
         let optcon = |vec: Vec<String>| -> Vec<Option<Vec<(u8, u32)>>> {
             let mut dat: Vec<Option<Vec<(u8, u32)>>> = Vec::new();
             for v in vec {
-                if v.is_empty() {
+                if v.len() == 0 {
                     dat.push(None)
                 } else {
                     let concollection: Vec<String> = v
                         .split('+')
                         .map(|c| c.to_string())
-                        .filter(|v| !v.is_empty())
+                        .filter(|w| w.len() != 0)
                         .collect();
                     let mut connections: Vec<(u8, u32)> = Vec::new();
                     for con in concollection {
                         let direction: u8 = con[0..1].parse().unwrap();
-                        let idx: u32 = con[1..].parse().unwrap();
+                        let idx: u32 = con[1..].parse().unwrap_or_else(|e| {
+                            println!("error parsing con: '{con}'");
+                            panic!()
+                        });
                         connections.push((direction, idx));
                     }
                     dat.push(Some(connections));
@@ -812,6 +812,7 @@ impl Save {
         }
     }
     pub fn from_string(string: String, off: [f32; 3]) -> Save {
+        let string: String = string.chars().filter(|c| !c.is_whitespace()).collect();
         let mut id = 0;
         let mut structure: Vec<String> = string.split('?').map(|c| c.to_string()).collect();
         while structure.len() < 3 {
@@ -863,6 +864,86 @@ impl Save {
         self.blocks.clear();
         self.connections.clear();
         self.buildings.clear();
+    }
+    pub fn get_json(&self) -> String {
+        let mut json: String = String::new();
+        json.push_str("{\n  \"save\": {\n    \"blocks\": [\n");
+        let mut blocks: Vec<String> = Vec::new();
+        for block in &self.blocks {
+            let args: Vec<String> = match block.blocktype {
+                BlockType::Antenna { channel, context } => {
+                    vec![channel as f32, context as u8 as f32]
+                }
+                BlockType::Delay { ticks } => vec![ticks as f32],
+                BlockType::Led {
+                    r,
+                    g,
+                    b,
+                    opacityon,
+                    opacityoff,
+                    analog,
+                } => vec![
+                    r as f32,
+                    g as f32,
+                    b as f32,
+                    opacityon as f32,
+                    opacityoff as f32,
+                    analog as f32,
+                ],
+                BlockType::Ledmixer { additive } => vec![additive],
+                BlockType::Random { probability } => vec![probability],
+                BlockType::Sound { freq, instrument } => vec![freq, instrument as u8 as f32],
+                BlockType::Text { symbol } => vec![symbol as f32],
+                BlockType::Tile {
+                    r,
+                    g,
+                    b,
+                    material,
+                    collision,
+                } => vec![
+                    r as f32,
+                    g as f32,
+                    b as f32,
+                    material as u8 as f32,
+                    collision as u8 as f32,
+                ],
+                _ => Vec::new(),
+            }
+            .iter()
+            .map(|f| f.to_string())
+            .collect();
+
+            blocks.push(format!("      {{\n        \"type\": {},\n        \"active\": {},\n        \"x\": {},\n        \"y\": {},\n        \"z\": {},\n        \"args\": [{}]\n      }}",
+                block.blocktype.as_u8(),
+                block.state as u8,
+                block.pos[0],
+                block.pos[1],
+                block.pos[2],
+                args.join(",")));
+        }
+        let blocks = blocks.join(",\n");
+        json.push_str(&blocks);
+        json.push_str("\n    ],\n    \"connections\": [\n");
+        let mut cons: Vec<String> = Vec::new();
+        for con in &self.connections {
+            cons.push(format!(
+                "      {{\n        \"src\":{},\n        \"dst\":{}\n      }}",
+                con.src, con.dst
+            ));
+        }
+        json.push_str(&cons.join(",\n"));
+        json.push_str("\n    ],\n    \"buildings\": [\n");
+        let mut buildings: Vec<String> = Vec::new();
+        for building in &self.buildings {
+            let mut string = String::new();
+            string.push('"');
+            string.push_str(&building.as_string());
+            string.push('"');
+            buildings.push(string);
+        }
+        json.push_str(&buildings.join(",\n"));
+        json.push_str("\n    ]\n  }\n}");
+        json
     }
 }
 
