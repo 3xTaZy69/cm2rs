@@ -648,10 +648,7 @@ impl Building {
                     let mut connections: Vec<(u8, u32)> = Vec::new();
                     for con in concollection {
                         let direction: u8 = con[0..1].parse().unwrap();
-                        let idx: u32 = con[1..].parse().unwrap_or_else(|e| {
-                            println!("error parsing con: '{con}'");
-                            panic!()
-                        });
+                        let idx: u32 = con[1..].parse().unwrap();
                         connections.push((direction, idx));
                     }
                     dat.push(Some(connections));
