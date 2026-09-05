@@ -17,7 +17,7 @@ use ssa::*;
 pub fn main() {
     let contents = std::fs::read_to_string("./constrs.cd").unwrap();
 
-    let tokens = parse_constraints(&contents);
+    let c = parse_constraints(&contents);
 
-    println!("{:?}", tokens);
+    println!("{:?}", c);
 }

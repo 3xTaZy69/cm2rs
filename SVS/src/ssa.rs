@@ -646,7 +646,7 @@ pub fn realize_netlist(ir: Vec<SSA>) {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ConstrToken<'a> {
     GENERATEPHYS,
     SETPROPERTY,
@@ -668,8 +668,11 @@ pub enum ConstrError<'a> {
     UnclosedArray { line: usize },
     UnclosedParentheses { line: usize },
     UnclosedString { line: usize },
+    NotFoundTop,
+    UnexpectedToken { token: ConstrToken<'a> },
 }
 
+#[derive(Debug)]
 pub enum ConstrIO<'a> {
     Input {
         name: &'a str,
@@ -685,18 +688,20 @@ pub enum ConstrIO<'a> {
     },
 }
 
+#[derive(Debug)]
 pub struct ConstrClock<'a> {
     timing: u16,
     top_name: &'a str,
 }
 
+#[derive(Debug)]
 pub struct Constraints<'a> {
     io_ports: Vec<ConstrIO<'a>>,
     top_module: &'a str,
     clocks: Vec<ConstrClock<'a>>,
 }
 
-pub fn parse_constraints<'a>(contents: &'a str) -> Result<(), ConstrError<'a>> {
+pub fn parse_constraints<'a>(contents: &'a str) -> Result<Constraints<'a>, ConstrError<'a>> {
     let mut pc = 0usize;
     let chars = contents.as_bytes();
     let mut line = 1usize;
@@ -829,7 +834,149 @@ pub fn parse_constraints<'a>(contents: &'a str) -> Result<(), ConstrError<'a>> {
         }
     }
 
-    Ok(())
+    pc = 0usize;
+    let mut ios: Vec<ConstrIO<'a>> = Vec::new();
+    let mut clocks: Vec<ConstrClock<'a>> = Vec::new();
+    let mut top: Option<&'a str> = None;
+
+    while pc < tokens.len() {
+        if let ConstrToken::GENERATEPHYS = &tokens[pc] {
+            pc += 1;
+            match &tokens[pc] {
+                ConstrToken::CLOCK => {
+                    pc += 1;
+                    if let ConstrToken::IDENT(x) = &tokens[pc] {
+                        pc += 1;
+                        if let ConstrToken::NUMBER(n) = &tokens[pc] {
+                            pc += 1;
+                            clocks.push(ConstrClock {
+                                timing: *n as u16,
+                                top_name: x,
+                            })
+                        } else {
+                            return Err(ConstrError::UnexpectedToken {
+                                token: tokens[pc].clone(),
+                            });
+                        }
+                    } else {
+                        return Err(ConstrError::UnexpectedToken {
+                            token: tokens[pc].clone(),
+                        });
+                    }
+                }
+                ConstrToken::INPUT => {
+                    pc += 1;
+                    if let ConstrToken::IDENT(top_name) = &tokens[pc] {
+                        pc += 1;
+                        if let ConstrToken::NUMBER(bitwidth) = &tokens[pc] {
+                            pc += 1;
+                            if let ConstrToken::POS(pos) = &tokens[pc] {
+                                pc += 1;
+                                if let ConstrToken::STRING(string) = &tokens[pc] {
+                                    pc += 1;
+                                    ios.push(ConstrIO::Input {
+                                        name: string,
+                                        bitwidth: *bitwidth,
+                                        pos: *pos,
+                                        top_name: *top_name,
+                                    })
+                                } else {
+                                    return Err(ConstrError::UnexpectedToken {
+                                        token: tokens[pc].clone(),
+                                    });
+                                }
+                            } else {
+                                return Err(ConstrError::UnexpectedToken {
+                                    token: tokens[pc].clone(),
+                                });
+                            }
+                        } else {
+                            return Err(ConstrError::UnexpectedToken {
+                                token: tokens[pc].clone(),
+                            });
+                        }
+                    } else {
+                        return Err(ConstrError::UnexpectedToken {
+                            token: tokens[pc].clone(),
+                        });
+                    }
+                }
+                ConstrToken::OUTPUT => {
+                    pc += 1;
+                    if let ConstrToken::IDENT(top_name) = &tokens[pc] {
+                        pc += 1;
+                        if let ConstrToken::NUMBER(bitwidth) = &tokens[pc] {
+                            pc += 1;
+                            if let ConstrToken::POS(pos) = &tokens[pc] {
+                                pc += 1;
+                                if let ConstrToken::STRING(string) = &tokens[pc] {
+                                    pc += 1;
+                                    ios.push(ConstrIO::Output {
+                                        name: string,
+                                        bitwidth: *bitwidth,
+                                        pos: *pos,
+                                        top_name: *top_name,
+                                    })
+                                } else {
+                                    return Err(ConstrError::UnexpectedToken {
+                                        token: tokens[pc].clone(),
+                                    });
+                                }
+                            } else {
+                                return Err(ConstrError::UnexpectedToken {
+                                    token: tokens[pc].clone(),
+                                });
+                            }
+                        } else {
+                            return Err(ConstrError::UnexpectedToken {
+                                token: tokens[pc].clone(),
+                            });
+                        }
+                    } else {
+                        return Err(ConstrError::UnexpectedToken {
+                            token: tokens[pc].clone(),
+                        });
+                    }
+                }
+                _ => {
+                    return Err(ConstrError::UnexpectedToken {
+                        token: tokens[pc].clone(),
+                    });
+                }
+            }
+        } else if let ConstrToken::SETPROPERTY = &tokens[pc] {
+            pc += 1;
+            if let ConstrToken::TOP = &tokens[pc] {
+                pc += 1;
+                if let ConstrToken::IDENT(x) = &tokens[pc] {
+                    pc += 1;
+                    top = Some(*x);
+                } else {
+                    return Err(ConstrError::UnexpectedToken {
+                        token: tokens[pc].clone(),
+                    });
+                }
+            } else {
+                return Err(ConstrError::UnexpectedToken {
+                    token: tokens[pc].clone(),
+                });
+            }
+        } else {
+            return Err(ConstrError::UnexpectedToken {
+                token: tokens[pc].clone(),
+            });
+        }
+    }
+
+    if top.is_none() {
+        return Err(ConstrError::NotFoundTop);
+    }
+
+    Ok(Constraints {
+        io_ports: ios,
+        top_module: top.unwrap(),
+        clocks,
+    })
 }
 
 pub struct VarInfo {
@@ -839,89 +986,4 @@ pub struct VarInfo {
     ascending: bool,
     array_len: Option<parser::ArrayRange>,
     init: Option<parser::Expr>,
-}
-
-pub struct Loverer {
-    ast: Vec<parser::Item>,
-    pub consts: HashMap<Vec<u64>, usize>,
-    pub ssa: HashMap<Sid, SSA>,
-    pub idents: HashMap<String, usize>,
-    pub declared_vars: HashMap<String, VarInfo>,
-}
-
-impl Loverer {
-    pub fn new(ast: Vec<parser::Item>) -> Self {
-        Loverer {
-            ast,
-            consts: HashMap::new(),
-            ssa: HashMap::new(),
-            idents: HashMap::new(),
-            declared_vars: HashMap::new(),
-        }
-    }
-    pub fn gen_expr(&mut self, expr: parser::Expr) -> Sid {
-        match expr {
-            parser::Expr::Lit { value } => {
-                let width = (value.len() - 1) * 64 + {
-                    let v = *value.last().unwrap() as usize;
-                    if v == 0 { 0 } else { v.ilog2() as usize }
-                };
-                self.gen_const(value, width)
-            }
-            parser::Expr::Signed(signed_expr) => {
-                let e = self.gen_expr(*signed_expr);
-
-                match e {
-                    Sid::Signed(id) => e,
-                    Sid::Unsigned(id) => Sid::Signed(id),
-                }
-            }
-            parser::Expr::Unsigned(signed_expr) => {
-                let e = self.gen_expr(*signed_expr);
-
-                match e {
-                    Sid::Signed(id) => Sid::Unsigned(id),
-                    Sid::Unsigned(id) => e,
-                }
-            }
-            parser::Expr::Binary { lhs, rhs, op } => {
-                todo!();
-            }
-            parser::Expr::BitSelect { src, idx } => {
-                todo!()
-                // this means i get only one bit from a variable using its index
-                // the problem is i dont know order of bits
-                // like they can be ascending or descending
-                // variables can go down like [7:0] and if i do [7] it will give me highest bit
-                // or if i do [0:7] and i get [7] it will give me lowest one
-                // i need a way to store that
-                // i already have that in variable declarations
-                // maybe when i generate new variable i can store its bits order
-                // 🦀🦀🦀🦀🦀
-            }
-            _ => todo!(),
-        }
-    }
-    pub fn next_id(&self) -> usize {
-        self.ssa.len()
-    }
-    pub fn gen_const(&mut self, value: Svalue, width: Swidth) -> Sid {
-        if let Some(id) = self.consts.get(&value) {
-            Sid::Unsigned(*id)
-        } else {
-            let id = self.next_id();
-            self.ssa.insert(
-                Sid::Unsigned(id),
-                SSA::Const {
-                    id: Sid::Unsigned(id),
-                    width,
-                    value: value.clone(),
-                },
-            );
-
-            self.consts.insert(value, id);
-
-            Sid::Unsigned(id)
-        }
-    }
 }
