@@ -1,0 +1,7 @@
+generate_phys clock clk0 (20)
+set_property top main
+# make sure that length of text is not greater than bitwidth
+generate_phys output result (4) [0.0,1.0,0.0] "res"
+generate_phys input a (4) [0.0,2.0,0.0] "a"
+generate_phys input b (4) [0.0,3.0,0.0] "b"
+# this is comment
