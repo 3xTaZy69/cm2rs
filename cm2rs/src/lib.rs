@@ -17,18 +17,29 @@ static NEXT_ID: AtomicU32 = AtomicU32::new(1);
 pub static SAVE: Mutex<Save> = Mutex::new(Save::new());
 
 // ==================================================================
+
+#[derive(Debug, Clone, Copy)]
+pub enum BlockError {
+    InvalidMaterialId(i32),
+    InvalidAntennaContextId(i32),
+    InvalidCollisionId(i32),
+    InvalidSoundInstrumentId(i32),
+}
+
 #[derive(Clone, Debug, Copy, PartialEq)]
 pub enum AntennaContext {
     Local = 0,
     Global = 1,
 }
 
-impl AntennaContext {
-    pub fn fromi32(int: i32) -> AntennaContext {
-        match int {
-            0 => Self::Local,
-            1 => Self::Global,
-            _ => panic!("argument {int} is not a valid antenna context"),
+impl TryFrom<i32> for AntennaContext {
+    type Error = BlockError;
+
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::Local),
+            1 => Ok(Self::Global),
+            _ => Err(BlockError::InvalidAntennaContextId(value)),
         }
     }
 }
@@ -50,23 +61,25 @@ pub enum Material {
     DiamondPlate = 13,
 }
 
-impl Material {
-    pub fn fromi32(int: i32) -> Material {
-        match int {
-            1 => Material::Stud,
-            2 => Material::Plastic,
-            3 => Material::Foil,
-            4 => Material::Neon,
-            5 => Material::Forcefield,
-            6 => Material::Glass,
-            7 => Material::Grass,
-            8 => Material::Wood,
-            9 => Material::Slate,
-            10 => Material::Sand,
-            11 => Material::Granite,
-            12 => Material::Concrete,
-            13 => Material::DiamondPlate,
-            _ => panic!("argument {int} is not a valid material"),
+impl TryFrom<i32> for Material {
+    type Error = BlockError;
+
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
+        match value {
+            1 => Ok(Material::Stud),
+            2 => Ok(Material::Plastic),
+            3 => Ok(Material::Foil),
+            4 => Ok(Material::Neon),
+            5 => Ok(Material::Forcefield),
+            6 => Ok(Material::Glass),
+            7 => Ok(Material::Grass),
+            8 => Ok(Material::Wood),
+            9 => Ok(Material::Slate),
+            10 => Ok(Material::Sand),
+            11 => Ok(Material::Granite),
+            12 => Ok(Material::Concrete),
+            13 => Ok(Material::DiamondPlate),
+            _ => Err(BlockError::InvalidMaterialId(value)),
         }
     }
 }
@@ -77,12 +90,14 @@ pub enum Collision {
     Collider = 1,
 }
 
-impl Collision {
-    pub fn fromi32(int: i32) -> Collision {
-        match int {
-            0 => Collision::Normal,
-            1 => Collision::Collider,
-            _ => panic!("argument {int} is not a valid collision"),
+impl TryFrom<i32> for Collision {
+    type Error = BlockError;
+
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Collision::Normal),
+            1 => Ok(Collision::Collider),
+            _ => Err(BlockError::InvalidCollisionId(value)),
         }
     }
 }
@@ -97,16 +112,18 @@ pub enum SoundInstrument {
     Snare = 5,
 }
 
-impl SoundInstrument {
-    pub fn fromi32(int: i32) -> SoundInstrument {
-        match int {
-            0 => Self::Sine,
-            1 => Self::Square,
-            2 => Self::Triangle,
-            3 => Self::Sawtooth,
-            4 => Self::Meow,
-            5 => Self::Snare,
-            _ => panic!("argument {int} is not a valid sound instrument"),
+impl TryFrom<i32> for SoundInstrument {
+    type Error = BlockError;
+
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::Sine),
+            1 => Ok(Self::Square),
+            2 => Ok(Self::Triangle),
+            3 => Ok(Self::Sawtooth),
+            4 => Ok(Self::Meow),
+            5 => Ok(Self::Snare),
+            _ => Err(BlockError::InvalidSoundInstrumentId(value)),
         }
     }
 }
@@ -187,8 +204,11 @@ impl BlockType {
 
         SmsBlock::fromi32(id)
     }
-    pub fn as_u8(&self) -> u8 {
-        match self {
+}
+
+impl From<BlockType> for u8 {
+    fn from(value: BlockType) -> Self {
+        match value {
             BlockType::Nor => 0,
             BlockType::And => 1,
             BlockType::Or => 2,
@@ -270,7 +290,7 @@ impl Block {
                 pos,
                 BlockType::Sound {
                     freq: parse_f32(&args[0]),
-                    instrument: SoundInstrument::fromi32(parse_i32(&args[1])),
+                    instrument: SoundInstrument::try_from(parse_i32(&args[1])).unwrap(),
                 },
             ),
             8 => Block::inew(id, pos, BlockType::Conductor),
@@ -303,8 +323,8 @@ impl Block {
                     r: parse_i32(&args[0]) as u8,
                     g: parse_i32(&args[1]) as u8,
                     b: parse_i32(&args[2]) as u8,
-                    material: Material::fromi32(parse_i32(&args[3])),
-                    collision: Collision::fromi32(parse_i32(&args[4])),
+                    material: Material::try_from(parse_i32(&args[3])).unwrap(),
+                    collision: Collision::try_from(parse_i32(&args[4])).unwrap(),
                 },
             ),
             15 => Block::inew(id, pos, BlockType::Node),
@@ -320,7 +340,7 @@ impl Block {
                 pos,
                 BlockType::Antenna {
                     channel: parse_i32(&args[0]) as u16,
-                    context: AntennaContext::fromi32(parse_i32(&args[1])),
+                    context: AntennaContext::try_from(parse_i32(&args[1])).unwrap(),
                 },
             ),
             18 => Block::inew(id, pos, BlockType::ConductorV2),
@@ -911,7 +931,7 @@ impl Save {
             .collect();
 
             blocks.push(format!("      {{\n        \"type\": {},\n        \"active\": {},\n        \"x\": {},\n        \"y\": {},\n        \"z\": {},\n        \"args\": [{}]\n      }}",
-                block.blocktype.as_u8(),
+                u8::from(block.blocktype),
                 block.state as u8,
                 block.pos[0],
                 block.pos[1],

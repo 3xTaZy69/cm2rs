@@ -769,7 +769,8 @@ pub fn reorder_blocks(x: u32, z: u32, y: u32, mut blocks: Vec<Block>) -> Vec<Blo
     blocks
 }
 
-/// xxotic`s idea
+/// xxotic`s idea.
+/// sorts blocks by their type
 pub fn reorder_blocks_sandwichify(z_limit: Option<usize>, blocks: Vec<Block>) -> Vec<Block> {
     let mut added: HashMap<u8, u8> = HashMap::new();
     let mut blocks_hash: HashMap<u8, Vec<Block>> = HashMap::new();
@@ -779,7 +780,7 @@ pub fn reorder_blocks_sandwichify(z_limit: Option<usize>, blocks: Vec<Block>) ->
     for block in blocks {
         if !BLOCKS_IGNORED.contains(&discriminant(&block.blocktype)) {
             let added_len = added.len() as u8;
-            let idx = *added.entry(block.blocktype.as_u8()).or_insert(added_len);
+            let idx = *added.entry(u8::from(block.blocktype)).or_insert(added_len);
             blocks_hash.entry(idx).or_insert(Vec::new()).push(block);
         } else {
             new_blocks.push(block);
