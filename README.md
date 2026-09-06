@@ -38,3 +38,7 @@ output:
 ```
 1,,,,,;0,,,1.5,,??
 ```
+
+## why cm2rs?
+
+You could write your own library for instancing blocks, connections, but why?
