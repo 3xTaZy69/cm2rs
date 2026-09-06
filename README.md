@@ -33,3 +33,8 @@ let +[0,1.5,0]another = "0,0,0,0,0,?";
 merge lower another
 
 ```
+
+output:
+```
+1,,,,,;0,,,1.5,,??
+```
