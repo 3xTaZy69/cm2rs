@@ -41,4 +41,4 @@ output:
 
 ## why cm2rs?
 
-You could write your own library for instancing blocks, connections, but why?
+You could write your own library for modifying savestrings, but why?
